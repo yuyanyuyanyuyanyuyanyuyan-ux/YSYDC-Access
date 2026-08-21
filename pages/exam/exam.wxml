@@ -1,0 +1,111 @@
+<view class="page">
+
+<!-- 顶部信息 -->
+<view class="exam-header">
+
+  <view class="progress">
+    第 {{currentIndex + 1}} / {{questions.length}} 题
+  </view>
+
+  <view class="timer">
+    剩余时间
+    <text>{{formattedTime}}</text>
+  </view>
+
+</view>
+
+
+<!-- 进度条 -->
+<view class="progress-bar">
+
+  <view
+  class="progress-inner"
+  style="width: {{progressWidth}}"
+>
+</view>
+
+</view>
+
+
+<!-- 题目区域 -->
+<view class="question-card">
+
+  <view class="question-number">
+
+    {{currentIndex + 1}}.
+
+  </view>
+
+  <view class="question-title">
+
+    {{questions[currentIndex].title}}
+
+  </view>
+
+</view>
+
+
+<!-- 选项 -->
+<view class="options">
+
+  <view
+    wx:for="{{questions[currentIndex].options}}"
+    wx:key="index"
+
+    class="option {{answers[questions[currentIndex].id] === index ? 'selected' : ''}}"
+
+    bindtap="selectAnswer"
+
+    data-index="{{index}}"
+  >
+
+    {{item}}
+
+  </view>
+
+</view>
+
+
+<!-- 底部操作 -->
+<view class="actions">
+
+  <button
+    class="secondary-button"
+    bindtap="previousQuestion"
+  >
+    上一题
+  </button>
+
+
+  <button
+    wx:if="{{currentIndex < questions.length - 1}}"
+    class="primary-button"
+    bindtap="nextQuestion"
+  >
+    下一题
+  </button>
+
+
+  <button
+    wx:else
+    class="submit-button"
+    bindtap="submitExam"
+  >
+    提交测验
+  </button>
+
+</view>
+
+
+<!-- 答题情况 -->
+<view class="answer-info">
+
+  已完成：
+
+  {{Object.keys(answers).length}}
+
+  / {{questions.length}}
+
+</view>
+
+</view>

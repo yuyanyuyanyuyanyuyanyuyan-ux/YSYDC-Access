@@ -2,11 +2,13 @@ Page({
 
   data: {
 
+    // 是否确认已经阅读安全须知
     confirmed: false
 
   },
 
 
+  // 监听复选框变化
   checkboxChange(e) {
 
     const checked = e.detail.value.length > 0
@@ -18,8 +20,10 @@ Page({
   },
 
 
+  // 进入测验
   goExam() {
 
+    // 判断用户是否勾选确认
     if (!this.data.confirmed) {
 
       wx.showToast({
@@ -32,21 +36,10 @@ Page({
     }
 
 
-    wx.showToast({
-      title: "即将进入测验",
-      icon: "none"
+    // 跳转到在线测验页面
+    wx.navigateTo({
+      url: '/pages/exam/exam'
     })
-
-
-    /*
-      下一步：
-
-      跳转到 exam 页面
-
-      wx.navigateTo({
-        url: '/pages/exam/exam'
-      })
-    */
 
   }
 

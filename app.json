@@ -2,10 +2,14 @@
   "pages": [
     "pages/index/index",
     "pages/register/register",
-    "pages/safety/safety"
+    "pages/safety/safety",
+    "pages/exam/exam"
   ],
   "window": {
-    "navigationBarTitleText": "数据机房准入系统"
+    "navigationBarTitleText": "数据机房准入系统",
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f5f6f7"
   },
   "style": "v2",
   "componentFramework": "glass-easel",
