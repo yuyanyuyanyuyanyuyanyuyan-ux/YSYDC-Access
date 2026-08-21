@@ -1,0 +1,152 @@
+<view class="page">
+
+<!-- 页面标题 -->
+<view class="header">
+
+  <view class="title">
+    数据机房安全须知
+  </view>
+
+  <view class="subtitle">
+    请认真阅读以下安全规定
+  </view>
+
+</view>
+
+
+<!-- 安全须知卡片 -->
+
+<view class="notice-card">
+
+  <view class="notice-item">
+
+    <view class="number">1</view>
+
+    <view class="content">
+
+      <view class="notice-title">
+        遵守机房管理规定
+      </view>
+
+      <view class="notice-text">
+        进入数据机房后，应遵守现场管理人员的安排，不得擅自进入未经授权的区域。
+      </view>
+
+    </view>
+
+  </view>
+
+
+  <view class="notice-item">
+
+    <view class="number">2</view>
+
+    <view class="content">
+
+      <view class="notice-title">
+        禁止擅自操作设备
+      </view>
+
+      <view class="notice-text">
+        未经授权，不得操作服务器、网络设备、电源设备及其他机房基础设施。
+      </view>
+
+    </view>
+
+  </view>
+
+
+  <view class="notice-item">
+
+    <view class="number">3</view>
+
+    <view class="content">
+
+      <view class="notice-title">
+        注意设备安全
+      </view>
+
+      <view class="notice-text">
+        禁止随意插拔设备、电缆或光纤，避免对正在运行的业务造成影响。
+      </view>
+
+    </view>
+
+  </view>
+
+
+  <view class="notice-item">
+
+    <view class="number">4</view>
+
+    <view class="content">
+
+      <view class="notice-title">
+        禁止携带危险物品
+      </view>
+
+      <view class="notice-text">
+        不得将易燃、易爆、腐蚀性等危险物品带入数据机房。
+      </view>
+
+    </view>
+
+  </view>
+
+
+  <view class="notice-item">
+
+    <view class="number">5</view>
+
+    <view class="content">
+
+      <view class="notice-title">
+        遵守现场安全要求
+      </view>
+
+      <view class="notice-text">
+        在机房内应注意人身和设备安全，出现异常情况应立即通知现场管理人员。
+      </view>
+
+    </view>
+
+  </view>
+
+</view>
+
+
+<!-- 阅读确认 -->
+
+<view class="confirm-area">
+
+  <checkbox-group bindchange="checkboxChange">
+
+    <label class="checkbox-label">
+
+      <checkbox
+        value="confirmed"
+        checked="{{confirmed}}"
+      />
+
+      <text>
+        我已认真阅读并理解以上安全须知
+      </text>
+
+    </label>
+
+  </checkbox-group>
+
+</view>
+
+
+<!-- 下一步 -->
+
+<button
+  class="next-button"
+  disabled="{{!confirmed}}"
+  bindtap="goExam"
+>
+  开始测验
+</button>
+
+</view>

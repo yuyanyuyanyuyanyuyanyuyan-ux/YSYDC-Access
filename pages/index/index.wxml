@@ -1,0 +1,28 @@
+<!--index.wxml-->
+<scroll-view class="scrollarea" scroll-y type="list">
+  <view class="container">
+
+  <view class="title">
+    YSY 数据中心出入登记平台
+  </view>
+
+  <view class="description">
+    外来人员进入数据机房前，
+    请完成安全知识测验。
+  </view>
+
+  <view class="process">
+
+    <view>① 填写个人信息</view>
+    <view>② 阅读安全须知</view>
+    <view>③ 完成在线测验</view>
+    <view>④ 等待管理员审批</view>
+
+  </view>
+
+  <button bindtap="goRegister">
+    开始登记
+  </button>
+
+</view>
+</scroll-view>
