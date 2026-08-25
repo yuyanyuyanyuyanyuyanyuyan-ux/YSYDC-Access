@@ -89,7 +89,9 @@ Page({
     } = this.data
 
 
-    /* 姓名校验 */
+    /* =========================
+       姓名校验
+    ========================= */
 
     if (!name.trim()) {
 
@@ -103,7 +105,9 @@ Page({
     }
 
 
-    /* 手机号校验 */
+    /* =========================
+       手机号校验
+    ========================= */
 
     if (!phone) {
 
@@ -133,7 +137,9 @@ Page({
     }
 
 
-    /* 公司校验 */
+    /* =========================
+       公司校验
+    ========================= */
 
     if (!company.trim()) {
 
@@ -147,7 +153,9 @@ Page({
     }
 
 
-    /* 身份类型校验 */
+    /* =========================
+       身份类型校验
+    ========================= */
 
     if (!identityType) {
 
@@ -161,7 +169,9 @@ Page({
     }
 
 
-    /* 访问目的校验 */
+    /* =========================
+       访问目的校验
+    ========================= */
 
     if (!purpose.trim()) {
 
@@ -175,48 +185,149 @@ Page({
     }
 
 
-    /*
-      当前阶段：
-      表单校验成功
-
-      后面接入后端后，
-      就在这里使用 wx.request()
-      将数据发送到 FastAPI
-    */
-
-
-    console.log("表单校验成功")
-
-    console.log({
-      name,
-      phone,
-      company,
-      identityType,
-      purpose
-    })
-
+    /* =========================
+       表单校验通过
+    ========================= */
 
     wx.showModal({
 
       title: "信息确认",
 
-      content:
-        "信息填写完成，点击确认后进入下一步。",
+      content: "信息填写完成，确认后将提交登记信息。",
 
-      success(res) {
+      success: (res) => {
 
-        if (res.confirm) {
+        if (!res.confirm) {
 
-          /*
-            下一阶段跳转到
-            安全须知页面
-          */
-
-            wx.navigateTo({
-              url: '/pages/safety/safety'
-            })
+          return
 
         }
+
+
+        /* 显示加载状态 */
+
+        wx.showLoading({
+          title: "正在提交"
+        })
+
+
+        /* =========================
+           向 FastAPI 提交数据
+        ========================= */
+
+        wx.request({
+
+          url: 'http://127.0.0.1:8000/api/register',
+
+          method: 'POST',
+
+          header: {
+            'content-type': 'application/json'
+          },
+
+
+          data: {
+
+            name: name,
+
+            phone: phone,
+
+            company: company,
+
+            identity_type: identityType,
+
+            visit_purpose: purpose
+
+          },
+
+
+          success: (response) => {
+
+            console.log("后端返回结果：", response.data)
+
+
+            /* 判断后端是否登记成功 */
+
+            if (response.data.success) {
+
+
+              /* 保存后端返回的用户 ID */
+
+              wx.setStorageSync(
+                'user_id',
+                response.data.user_id
+              )
+
+
+              console.log(
+                "当前用户 ID：",
+                response.data.user_id
+              )
+
+
+              wx.showToast({
+
+                title: "登记成功",
+
+                icon: "success",
+
+                duration: 1500
+
+              })
+
+
+              /* 延迟后跳转安全须知 */
+
+              setTimeout(() => {
+
+                wx.navigateTo({
+                  url: '/pages/safety/safety'
+                })
+
+              }, 1500)
+
+
+            } else {
+
+              wx.showToast({
+
+                title: "登记失败",
+
+                icon: "none"
+
+              })
+
+            }
+
+          },
+
+
+          fail: (error) => {
+
+            console.error(
+              "请求后端失败：",
+              error
+            )
+
+
+            wx.showToast({
+
+              title: "无法连接服务器",
+
+              icon: "none"
+
+            })
+
+          },
+
+
+          complete: () => {
+
+            wx.hideLoading()
+
+          }
+
+        })
 
       }
 

@@ -1,0 +1,152 @@
+.page {
+  padding: 30rpx;
+  background: #f5f7fa;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 16rpx;
+  padding: 30rpx;
+  margin-bottom: 30rpx;
+}
+
+.card-title {
+  font-size: 32rpx;
+  font-weight: bold;
+  margin-bottom: 20rpx;
+  border-left: 8rpx solid #2563eb;
+  padding-left: 20rpx;
+}
+
+.info-row {
+  font-size: 28rpx;
+  margin-bottom: 15rpx;
+  color: #333;
+}
+
+.status {
+  font-weight: bold;
+  margin-left: 10rpx;
+}
+
+.status.pending { color: #f59e0b; }
+.status.approved { color: #07c160; }
+.status.rejected { color: #fa5151; }
+
+.pending-tip {
+  background: #fff7e6;
+  color: #d48806;
+  padding: 15rpx;
+  border-radius: 8rpx;
+  margin-top: 20rpx;
+  font-size: 26rpx;
+}
+
+.done-tip {
+  background: #f6ffed;
+  color: #52c41a;
+  padding: 15rpx;
+  border-radius: 8rpx;
+  margin-top: 20rpx;
+  font-size: 26rpx;
+}
+
+.empty {
+  text-align: center;
+  color: #999;
+  padding: 40rpx;
+}
+
+/* 时间轴样式 */
+.timeline {
+  margin-top: 20rpx;
+  position: relative;
+}
+
+.timeline-item {
+  display: flex;
+  margin-bottom: 30rpx;
+  position: relative;
+}
+
+.timeline-dot {
+  width: 16rpx;
+  height: 16rpx;
+  background: #2563eb;
+  border-radius: 50%;
+  margin-top: 10rpx;
+  margin-right: 20rpx;
+  position: relative;
+  z-index: 2;
+}
+
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: 7rpx;
+  top: 30rpx;
+  bottom: -30rpx;
+  width: 2rpx;
+  background: #e0e0e0;
+  z-index: 1;
+}
+
+.timeline-item:last-child::before {
+  display: none;
+}
+
+.timeline-content {
+  flex: 1;
+  background: #f9f9f9;
+  border-radius: 12rpx;
+  padding: 20rpx;
+}
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10rpx;
+}
+
+.step-name {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: #333;
+}
+
+.step-time {
+  font-size: 24rpx;
+  color: #999;
+}
+
+.timeline-operator {
+  font-size: 26rpx;
+  color: #666;
+  margin-bottom: 10rpx;
+}
+
+.timeline-action {
+  font-size: 26rpx;
+  margin-bottom: 10rpx;
+}
+
+.action-approved {
+  color: #07c160;
+  font-weight: bold;
+}
+
+.action-rejected {
+  color: #fa5151;
+  font-weight: bold;
+}
+
+.timeline-comment {
+  font-size: 26rpx;
+  color: #333;
+  background: #ffffff;
+  padding: 10rpx;
+  border-radius: 8rpx;
+}

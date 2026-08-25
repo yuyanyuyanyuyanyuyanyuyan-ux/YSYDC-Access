@@ -25,4 +25,17 @@
   </button>
 
 </view>
+
+<!-- 管理员入口 -->
+
+<view class="admin-entry">
+
+<button
+  class="admin-login-button"
+  bindtap="goAdminLogin"
+>
+  管理员登录
+</button>
+
+</view>
 </scroll-view>

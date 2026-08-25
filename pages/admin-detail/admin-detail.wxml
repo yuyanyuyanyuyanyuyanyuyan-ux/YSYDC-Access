@@ -1,0 +1,56 @@
+<view class="page">
+
+<!-- 基本信息卡片 -->
+<view class="card">
+  <view class="card-title">人员信息</view>
+  <view class="info-row"><text>姓名：</text>{{detail.name}}</view>
+  <view class="info-row"><text>电话：</text>{{detail.phone}}</view>
+  <view class="info-row"><text>公司：</text>{{detail.company}}</view>
+  <view class="info-row"><text>身份：</text>{{detail.identity_type}}</view>
+  <view class="info-row"><text>目的：</text>{{detail.visit_purpose}}</view>
+</view>
+
+<!-- 考试与状态卡片 -->
+<view class="card">
+  <view class="card-title">考试与审批状态</view>
+  <view class="info-row"><text>考试成绩：</text>{{detail.score}} 分</view>
+  <view class="info-row"><text>交卷时间：</text>{{detail.exam_submitted_at}}</view>
+  <view class="info-row"><text>申请时间：</text>{{detail.application_time}}</view>
+  <view class="info-row"><text>当前状态：</text>
+  <text class="status {{detail.approval_status}}">
+    {{detail.approval_status === 'pending' ? '待审批' : (detail.approval_status === 'approved' ? '已通过' : '已拒绝')}}
+  </text>
+</view>
+  <view wx:if="{{currentTask}}" class="pending-tip">
+    当前待办：{{currentTask.current_step_name}}（由您处理）
+  </view>
+  <view wx:else class="done-tip">该流程已处理完毕</view>
+</view>
+
+<!-- 完整审批流转记录（时间轴） -->
+<view class="card">
+  <view class="card-title">审批流转记录</view>
+  <view wx:if="{{history.length === 0}}" class="empty">暂无审批记录</view>
+  <view class="timeline" wx:else>
+    <view class="timeline-item" wx:for="{{history}}" wx:key="index">
+      <view class="timeline-dot"></view>
+      <view class="timeline-content">
+        <view class="timeline-header">
+          <text class="step-name">{{item.step_name}}</text>
+          <text class="step-time">{{item.created_at}}</text>
+        </view>
+        <view class="timeline-operator">
+          审批人：{{item.approver_name}} ({{item.role}})
+        </view>
+        <view class="timeline-action action-{{item.action}}">
+          操作：{{item.action === 'approved' ? '通过' : '拒绝'}}
+        </view>
+        <view class="timeline-comment">
+          意见：{{item.comment || '无'}}
+        </view>
+      </view>
+    </view>
+  </view>
+</view>
+
+</view>

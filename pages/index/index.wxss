@@ -23,3 +23,15 @@
 button {
   margin-top: 80rpx;
 }
+
+.admin-entry {
+  margin-top: 80rpx;
+  padding-bottom: 40rpx;
+}
+
+.admin-login-button {
+  width: 80%;
+  font-size: 28rpx;
+  color: #666666;
+  background: #f5f5f5;
+}

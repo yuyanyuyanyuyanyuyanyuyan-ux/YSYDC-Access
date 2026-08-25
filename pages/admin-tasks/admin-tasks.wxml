@@ -1,0 +1,95 @@
+<view class="page">
+
+<!-- 顶部管理员信息与统计 -->
+<view class="admin-header">
+  <view class="admin-name">{{adminInfo.real_name}}</view>
+  <view class="admin-role">当前管理员</view>
+  <view class="stats-row">
+    <view class="stat-item">
+      <view class="stat-num">{{tasks.length}}</view>
+      <view class="stat-label">待办</view>
+    </view>
+    <view class="stat-item">
+      <view class="stat-num">{{completedTasks.length}}</view>
+      <view class="stat-label">已办</view>
+    </view>
+  </view>
+</view>
+
+<!-- Tab 切换栏 -->
+<view class="tabs">
+  <view class="tab {{currentTab === 0 ? 'active' : ''}}" bindtap="switchTab" data-index="0">
+    我的待办
+    <view wx:if="{{tasks.length > 0}}" class="badge">{{tasks.length}}</view>
+  </view>
+  <view class="tab {{currentTab === 1 ? 'active' : ''}}" bindtap="switchTab" data-index="1">
+    我的已办
+    <view wx:if="{{completedTasks.length > 0}}" class="badge">{{completedTasks.length}}</view>
+  </view>
+</view>
+
+<!-- 待办列表 -->
+<view wx:if="{{currentTab === 0}}">
+  <view wx:if="{{loading}}" class="loading">正在加载...</view>
+  <view wx:elif="{{tasks.length === 0}}" class="empty">当前没有待审批任务</view>
+
+  <view wx:else>
+    <view wx:for="{{tasks}}" wx:key="task_id" class="task-card">
+      <view class="task-header">
+        <text class="task-name">{{item.name}}</text>
+        <text class="pending-tag">待审批</text>
+      </view>
+      <view class="task-info"><text>手机号：</text>{{item.phone}}</view>
+      <view class="task-info"><text>公司/单位：</text>{{item.company}}</view>
+      <view class="task-info"><text>身份类型：</text>{{item.identity_type}}</view>
+      <view class="task-info"><text>访问目的：</text>{{item.visit_purpose}}</view>
+      <view class="task-info score"><text>考试成绩：</text>{{item.score}} 分</view>
+      <view class="step">{{item.step_name}}</view>
+
+      <view class="comment-section">
+        <textarea
+          class="comment-input"
+          placeholder="请输入审批意见（拒绝时必填）"
+          value="{{item.comment}}"
+          bindinput="inputComment"
+          data-taskid="{{item.task_id}}"
+          maxlength="200"
+        />
+      </view>
+
+      <view class="action-buttons">
+        <button class="detail-btn" bindtap="viewDetail" data-recordid="{{item.approval_record_id}}">查看详情</button>
+        <button class="approve-btn" bindtap="approveTask" data-taskid="{{item.task_id}}">通过</button>
+        <button class="reject-btn" bindtap="rejectTask" data-taskid="{{item.task_id}}">拒绝</button>
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- 已办列表 -->
+<view wx:if="{{currentTab === 1}}">
+  <view wx:if="{{loadingCompleted}}" class="loading">正在加载...</view>
+  <view wx:elif="{{completedTasks.length === 0}}" class="empty">暂无已办任务</view>
+
+  <view wx:else>
+    <view wx:for="{{completedTasks}}" wx:key="task_id" class="task-card">
+      <view class="task-header">
+        <text class="task-name">{{item.name}}</text>
+        <text class="tag {{item.status === 'approved' ? 'tag-approved' : 'tag-rejected'}}">
+          {{item.status === 'approved' ? '已通过' : '已拒绝'}}
+        </text>
+      </view>
+      <view class="task-info"><text>手机号：</text>{{item.phone}}</view>
+      <view class="task-info"><text>公司/单位：</text>{{item.company}}</view>
+      <view class="task-info score"><text>考试成绩：</text>{{item.score}} 分</view>
+      <view class="task-info"><text>审批意见：</text>{{item.comment || '无'}}</view>
+      <view class="step">处理时间：{{item.approved_at}}</view>
+
+      <view class="action-buttons">
+        <button class="detail-btn" bindtap="viewDetail" data-recordid="{{item.approval_record_id}}">查看详情</button>
+      </view>
+    </view>
+  </view>
+</view>
+
+</view>

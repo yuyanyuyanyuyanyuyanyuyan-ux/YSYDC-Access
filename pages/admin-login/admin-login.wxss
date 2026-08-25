@@ -1,0 +1,57 @@
+.page {
+  min-height: 100vh;
+  background: #f5f7fa;
+  padding: 80rpx 40rpx;
+  box-sizing: border-box;
+}
+
+.header {
+  margin-bottom: 80rpx;
+}
+
+.title {
+  font-size: 52rpx;
+  font-weight: bold;
+  color: #1f2937;
+}
+
+.subtitle {
+  margin-top: 16rpx;
+  font-size: 28rpx;
+  color: #9ca3af;
+}
+
+.login-card {
+  background: #ffffff;
+  border-radius: 24rpx;
+  padding: 40rpx;
+  box-sizing: border-box;
+}
+
+.form-item {
+  margin-bottom: 40rpx;
+}
+
+.label {
+  display: block;
+  font-size: 28rpx;
+  color: #374151;
+  margin-bottom: 16rpx;
+}
+
+input {
+  height: 88rpx;
+  background: #f3f4f6;
+  border-radius: 12rpx;
+  padding: 0 24rpx;
+  font-size: 30rpx;
+  box-sizing: border-box;
+}
+
+.login-button {
+  margin-top: 20rpx;
+  background: #2563eb;
+  color: #ffffff;
+  border-radius: 12rpx;
+  font-size: 32rpx;
+}

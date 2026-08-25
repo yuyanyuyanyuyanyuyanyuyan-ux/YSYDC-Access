@@ -1,13 +1,12 @@
 Page({
 
-  
   data: {
 
     // 当前题目编号
     currentIndex: 0,
 
     // 进度条宽度
-    progressWidth: '10%',
+    progressWidth: '0%',
 
     // 剩余时间：5分钟 = 300秒
     remainingTime: 300,
@@ -21,357 +20,801 @@ Page({
     // 是否已经提交
     submitted: false,
 
-    // 模拟题目
-    questions: [
+    // 考试题目
+    questions: []
 
-      {
-        id: 1,
-        title: '进入数据机房前，以下哪项操作是正确的？',
-        options: [
-          'A. 未经允许自行进入机房',
-          'B. 完成安全准入测验并获得审批',
-          'C. 跟随其他人员直接进入',
-          'D. 使用他人门禁进入'
-        ]
-      },
-
-      {
-        id: 2,
-        title: '进入数据机房时，应当如何管理随身物品？',
-        options: [
-          'A. 随意携带',
-          'B. 根据机房管理规定进行检查和管理',
-          'C. 可以携带任何危险物品',
-          'D. 不需要检查'
-        ]
-      },
-
-      {
-        id: 3,
-        title: '发现机房内设备出现异常时，正确的做法是？',
-        options: [
-          'A. 自行拆卸设备',
-          'B. 拔掉所有电源',
-          'C. 立即通知机房管理人员',
-          'D. 忽略异常'
-        ]
-      },
-
-      {
-        id: 4,
-        title: '未经授权，是否可以操作机房服务器设备？',
-        options: [
-          'A. 可以',
-          'B. 不可以',
-          'C. 任何情况下都可以',
-          'D. 只要设备没有人使用就可以'
-        ]
-      },
-
-      {
-        id: 5,
-        title: '进入数据机房后，应遵守哪项规定？',
-        options: [
-          'A. 保持机房整洁',
-          'B. 随意饮食',
-          'C. 大声喧哗',
-          'D. 随意移动设备'
-        ]
-      },
-
-      {
-        id: 6,
-        title: '发生火灾等紧急情况时，应首先？',
-        options: [
-          'A. 保持冷静并按照应急流程处理',
-          'B. 随意关闭所有设备',
-          'C. 继续正常工作',
-          'D. 不通知任何人员'
-        ]
-      },
-
-      {
-        id: 7,
-        title: '是否可以将机房门禁权限借给其他人员？',
-        options: [
-          'A. 可以',
-          'B. 不可以',
-          'C. 认识的人可以',
-          'D. 临时借用可以'
-        ]
-      },
-
-      {
-        id: 8,
-        title: '机房内发现异常人员时，应当？',
-        options: [
-          'A. 不予理会',
-          'B. 与其发生冲突',
-          'C. 通知机房管理人员',
-          'D. 自行驱赶'
-        ]
-      },
-
-      {
-        id: 9,
-        title: '进入机房进行操作前，应当确认？',
-        options: [
-          'A. 是否获得相应授权',
-          'B. 是否带了手机',
-          'C. 是否认识其他工作人员',
-          'D. 是否穿着便装'
-        ]
-      },
-
-      {
-        id: 10,
-        title: '完成机房相关操作后，应当？',
-        options: [
-          'A. 直接离开',
-          'B. 按照规定完成登记和确认',
-          'C. 不关闭任何设备',
-          'D. 不通知任何人员'
-        ]
-      }
-
-    ]
   },
+
+
+  // 页面加载
 
   onLoad() {
 
-    // 启动倒计时
-    this.startTimer()
+    // 从后端加载考试题目
+    this.loadQuestions()
 
   },
 
+
+  // 从后端获取考试题目
+
+  loadQuestions() {
+
+    wx.showLoading({
+      title: '加载题目中'
+    })
+
+
+    wx.request({
+
+      // 本地 FastAPI 服务器
+      url: 'http://127.0.0.1:8000/api/questions',
+
+      method: 'GET',
+
+
+      // 请求成功
+
+      success: (response) => {
+
+        console.log(
+          '获取题目结果：',
+          response.data
+        )
+
+
+        // 判断后端是否返回成功
+
+        if (
+          response.data.success &&
+          response.data.questions &&
+          response.data.questions.length > 0
+        ) {
+
+          /*
+            将数据库返回的数据：
+
+            {
+              id,
+              question,
+              option_a,
+              option_b,
+              option_c,
+              option_d
+            }
+
+            转换成当前小程序使用的：
+
+            {
+              id,
+              title,
+              options
+            }
+          */
+
+          const questions =
+            response.data.questions.map(item => {
+
+              return {
+
+                id: item.id,
+
+                title: item.question,
+
+                options: [
+
+                  'A. ' + item.option_a,
+
+                  'B. ' + item.option_b,
+
+                  'C. ' + item.option_c,
+
+                  'D. ' + item.option_d
+
+                ]
+
+              }
+
+            })
+
+
+          // 保存题目
+
+          this.setData({
+
+            questions: questions,
+
+            // 从第一题开始
+            currentIndex: 0,
+
+            // 初始化进度条
+            progressWidth:
+              (1 / questions.length * 100) + '%'
+
+          })
+
+
+          console.log(
+            '题目加载成功：',
+            questions
+          )
+
+
+          // 题目加载完成后开始倒计时
+
+          this.startTimer()
+
+        } else {
+
+          wx.showToast({
+
+            title: '没有获取到考试题目',
+
+            icon: 'none'
+
+          })
+
+        }
+
+      },
+
+
+      // 请求失败
+
+      fail: (error) => {
+
+        console.error(
+          '获取题目失败：',
+          error
+        )
+
+
+        wx.showToast({
+
+          title: '无法连接后端服务器',
+
+          icon: 'none'
+
+        })
+
+      },
+
+
+      // 请求完成
+
+      complete: () => {
+
+        wx.hideLoading()
+
+      }
+
+    })
+
+  },
+
+
   // 页面卸载时清除定时器
+
   onUnload() {
 
     if (this.timer) {
+
       clearInterval(this.timer)
+
     }
 
   },
 
+
   // 开始倒计时
+
   startTimer() {
+
+    // 防止重复创建定时器
+
+    if (this.timer) {
+
+      clearInterval(this.timer)
+
+    }
+
 
     this.timer = setInterval(() => {
 
-      let remainingTime = this.data.remainingTime - 1
+      let remainingTime =
+        this.data.remainingTime - 1
+
 
       // 时间到了
+
       if (remainingTime <= 0) {
 
         remainingTime = 0
 
         clearInterval(this.timer)
 
+
         this.setData({
+
           remainingTime: 0,
+
           formattedTime: '00:00'
+
         })
+
 
         wx.showToast({
+
           title: '考试时间结束',
+
           icon: 'none'
+
         })
 
+
         // 自动提交
+
         setTimeout(() => {
+
           this.submitExam()
+
         }, 1000)
 
+
         return
+
       }
 
-      const minute = Math.floor(remainingTime / 60)
 
-      const second = remainingTime % 60
+      // 计算分钟
+
+      const minute =
+        Math.floor(remainingTime / 60)
+
+
+      // 计算秒
+
+      const second =
+        remainingTime % 60
+
+
+      // 格式化时间
 
       const formattedTime =
+
         String(minute).padStart(2, '0') +
+
         ':' +
+
         String(second).padStart(2, '0')
 
+
+      // 更新页面
+
       this.setData({
+
         remainingTime,
+
         formattedTime
+
       })
 
     }, 1000)
 
   },
 
+
   // 选择答案
+
   selectAnswer(e) {
 
-    const optionIndex = e.currentTarget.dataset.index
+    const optionIndex =
+      e.currentTarget.dataset.index
+
 
     const currentQuestion =
-      this.data.questions[this.data.currentIndex]
 
-    const questionId = currentQuestion.id
+      this.data.questions[
+        this.data.currentIndex
+      ]
+
+
+    // 当前题目 ID
+
+    const questionId =
+      currentQuestion.id
+
+
+    // 复制原来的答案
 
     const answers = {
+
       ...this.data.answers
+
     }
 
-    answers[questionId] = optionIndex
+
+    // 保存用户选择
+
+    answers[questionId] =
+      optionIndex
+
 
     this.setData({
+
       answers
+
     })
 
+
+    console.log(
+      '当前用户答案：',
+      answers
+    )
+
   },
+
 
   // 更新进度条
+
   updateProgress() {
-
-    const total = this.data.questions.length
-
-    const progressWidth =
-      ((this.data.currentIndex + 1) / total) * 100 + '%'
-
-    this.setData({
-      progressWidth
-    })
-
-  },
-
-  // 上一题
-  previousQuestion() {
-
-    if (this.data.currentIndex === 0) {
-  
-      wx.showToast({
-        title: '已经是第一题',
-        icon: 'none'
-      })
-  
-      return
-    }
-  
-    this.setData({
-      currentIndex: this.data.currentIndex - 1
-    })
-  
-    this.updateProgress()
-  
-  },
-
-  // 下一题
-  nextQuestion() {
-
-    const total = this.data.questions.length
-  
-    if (this.data.currentIndex >= total - 1) {
-  
-      wx.showToast({
-        title: '已经是最后一题',
-        icon: 'none'
-      })
-  
-      return
-    }
-  
-    this.setData({
-      currentIndex: this.data.currentIndex + 1
-    })
-  
-    this.updateProgress()
-  
-  },
-
-  // 提交考试
-  submitExam() {
-
-    if (this.data.submitted) {
-      return
-    }
-
-    const answeredCount =
-      Object.keys(this.data.answers).length
 
     const total =
       this.data.questions.length
 
+
+    // 防止题目为空
+
+    if (total === 0) {
+
+      return
+
+    }
+
+
+    const progressWidth =
+
+      (
+        (this.data.currentIndex + 1)
+
+        / total
+
+      ) * 100 + '%'
+
+
+    this.setData({
+
+      progressWidth
+
+    })
+
+  },
+
+
+  // 上一题
+
+  previousQuestion() {
+
+    // 如果已经是第一题
+
+    if (
+      this.data.currentIndex === 0
+    ) {
+
+      wx.showToast({
+
+        title: '已经是第一题',
+
+        icon: 'none'
+
+      })
+
+
+      return
+
+    }
+
+
+    // 切换到上一题
+
+    this.setData({
+
+      currentIndex:
+        this.data.currentIndex - 1
+
+    })
+
+
+    // 更新进度条
+
+    this.updateProgress()
+
+  },
+
+
+  // 下一题
+
+  nextQuestion() {
+
+    const total =
+      this.data.questions.length
+
+
+    // 如果已经是最后一题
+
+    if (
+      this.data.currentIndex
+      >= total - 1
+    ) {
+
+      wx.showToast({
+
+        title: '已经是最后一题',
+
+        icon: 'none'
+
+      })
+
+
+      return
+
+    }
+
+
+    // 切换到下一题
+
+    this.setData({
+
+      currentIndex:
+        this.data.currentIndex + 1
+
+    })
+
+
+    // 更新进度条
+
+    this.updateProgress()
+
+  },
+
+
+  // 提交考试
+
+  submitExam() {
+
+    // 防止重复提交
+
+    if (
+      this.data.submitted
+    ) {
+
+      return
+
+    }
+
+
+    // 已答题数量
+
+    const answeredCount =
+
+      Object.keys(
+        this.data.answers
+      ).length
+
+
+    // 总题目数量
+
+    const total =
+
+      this.data.questions.length
+
+
     // 检查是否有未答题目
-    if (answeredCount < total) {
+
+    if (
+      answeredCount < total
+    ) {
 
       wx.showModal({
 
         title: '提示',
 
         content:
-          `还有 ${total - answeredCount} 道题未完成，确定提交吗？`,
+
+          `还有 ${
+            total - answeredCount
+          } 道题未完成，确定提交吗？`,
+
 
         success: (res) => {
 
-          if (res.confirm) {
+          if (
+            res.confirm
+          ) {
+
             this.confirmSubmit()
+
           }
 
         }
 
       })
 
+
       return
+
     }
+
+
+    // 所有题目已经完成
 
     this.confirmSubmit()
 
   },
 
+
   // 确认提交
-  confirmSubmit() {
 
-    if (this.timer) {
-      clearInterval(this.timer)
-    }
+  // 确认提交
 
-    this.setData({
-      submitted: true
+// 确认提交考试
+
+confirmSubmit() {
+
+  // =========================
+  // 停止倒计时
+  // =========================
+
+  if (this.timer) {
+
+    clearInterval(this.timer)
+
+  }
+
+
+  // =========================
+  // 获取登记时保存的用户 ID
+  // =========================
+
+  const userId = wx.getStorageSync('user_id')
+
+
+  console.log(
+    '当前获取到的用户 ID：',
+    userId
+  )
+
+
+  // =========================
+  // 判断是否获取到用户信息
+  // =========================
+
+  if (!userId) {
+
+    wx.showToast({
+
+      title: '未获取到用户信息',
+
+      icon: 'none'
+
     })
 
-    console.log('用户答案：', this.data.answers)
+    return
 
-    /*
-      后端开发完成后，这里将发送：
+  }
 
-      {
-        userId: xxx,
-        answers: {
-          1: 1,
-          2: 2,
-          ...
+
+  // =========================
+  // 防止重复提交
+  // =========================
+
+  this.setData({
+
+    submitted: true
+
+  })
+
+
+  // =========================
+  // 显示提交状态
+  // =========================
+
+  wx.showLoading({
+
+    title: '正在提交考试'
+
+  })
+
+
+  // =========================
+  // 向后端提交考试答案
+  // =========================
+
+  wx.request({
+
+    url: 'http://127.0.0.1:8000/api/submit-exam',
+
+    method: 'POST',
+
+    header: {
+
+      'content-type': 'application/json'
+
+    },
+
+
+    data: {
+
+      user_id: userId,
+
+      answers: this.data.answers
+
+    },
+
+
+    // =========================
+    // 请求成功
+    // =========================
+
+    success: (response) => {
+
+      console.log(
+
+        '考试提交结果：',
+
+        response.data
+
+      )
+
+
+      if (response.data.success) {
+
+
+        const score = response.data.score
+
+        const passed = response.data.passed
+
+
+        // =========================
+        // 考试通过
+        // =========================
+
+        if (passed) {
+
+          wx.showModal({
+
+            title: '考试通过',
+
+            content:
+              `您的考试成绩为 ${score} 分，已提交管理员审批。`,
+
+            showCancel: false,
+
+
+            success: () => {
+
+              wx.redirectTo({
+
+                url: '/pages/index/index'
+
+              })
+
+            }
+
+          })
+
         }
+
+
+        // =========================
+        // 考试未通过
+        // =========================
+
+        else {
+
+          wx.showModal({
+
+            title: '考试未通过',
+
+            content:
+              `您的考试成绩为 ${score} 分，未达到 70 分。`,
+
+            showCancel: false,
+
+
+            success: () => {
+
+              wx.redirectTo({
+
+                url: '/pages/index/index'
+
+              })
+
+            }
+
+          })
+
+        }
+
       }
 
-      到本地服务器。
 
-      分数计算不在小程序完成，
-      而是在后端完成。
-    */
+      // =========================
+      // 后端返回失败
+      // =========================
 
-    wx.showModal({
+      else {
 
-      title: '提交成功',
+        wx.showToast({
 
-      content: '测验已提交，正在等待后台处理。',
+          title:
+            response.data.message || '考试提交失败',
 
-      showCancel: false,
+          icon: 'none'
 
-      success: () => {
+        })
 
-        wx.redirectTo({
-          url: '/pages/index/index'
+
+        // 提交失败后允许重新提交
+
+        this.setData({
+
+          submitted: false
+
         })
 
       }
 
-    })
+    },
 
-  }
+
+    // =========================
+    // 网络请求失败
+    // =========================
+
+    fail: (error) => {
+
+      console.error(
+
+        '提交考试失败：',
+
+        error
+
+      )
+
+
+      wx.showToast({
+
+        title: '无法连接服务器',
+
+        icon: 'none'
+
+      })
+
+
+      // 恢复提交状态
+
+      this.setData({
+
+        submitted: false
+
+      })
+
+    },
+
+
+    // =========================
+    // 请求完成
+    // =========================
+
+    complete: () => {
+
+      wx.hideLoading()
+
+    }
+
+  })
+
+}
 
 })
