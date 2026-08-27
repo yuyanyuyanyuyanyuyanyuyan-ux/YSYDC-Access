@@ -4,8 +4,6 @@
     <view class="row"><text class="label">姓名</text><text>{{info.name}}</text></view>
     <view class="row"><text class="label">手机号</text><text>{{info.phone}}</text></view>
     <view class="row"><text class="label">公司</text><text>{{info.company}}</text></view>
-    <view class="row"><text class="label">访问时间</text><text>{{info.visit_time || '—'}}</text></view>
-    <view class="row"><text class="label">带领人</text><text>{{info.lead_person || '—'}}</text></view>
   </view>
 
   <view wx:else class="empty">加载中...</view>
