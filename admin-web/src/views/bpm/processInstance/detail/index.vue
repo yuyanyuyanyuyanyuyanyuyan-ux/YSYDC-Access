@@ -1,22 +1,36 @@
 <template>
   <div>
-    <!-- 工单信息 -->
+    <!-- 工单/预约信息 -->
     <el-card shadow="never" class="mb-20px">
       <template #header>
-        <span class="font-bold">工单信息</span>
+        <span class="font-bold">工单/预约信息</span>
       </template>
       <el-descriptions :column="3" border>
-        <el-descriptions-item label="访客公司">{{ detail.company }}</el-descriptions-item>
-        <el-descriptions-item label="访问时间">{{ detail.visit_time }}</el-descriptions-item>
-        <el-descriptions-item label="访问规模">{{ detail.visit_scale }}</el-descriptions-item>
-        <el-descriptions-item label="联络人">{{ detail.contact_name }}</el-descriptions-item>
-        <el-descriptions-item label="联络电话">{{ detail.contact_phone }}</el-descriptions-item>
-        <el-descriptions-item label="带领人">{{ detail.lead_person }}</el-descriptions-item>
+        <el-descriptions-item label="来访单位">{{ detail.company }}</el-descriptions-item>
+        <el-descriptions-item label="进入时间">{{ detail.entry_time }}</el-descriptions-item>
+        <el-descriptions-item label="出去时间">{{ detail.exit_time }}</el-descriptions-item>
+        <el-descriptions-item label="进出原因">{{ detail.reason }}</el-descriptions-item>
+        <el-descriptions-item label="活动区域">{{ detail.area }}</el-descriptions-item>
+        <el-descriptions-item label="陪同人员">{{ detail.accompanying_person }}</el-descriptions-item>
+        <el-descriptions-item label="联系人">{{ detail.contact_name }} {{ detail.contact_phone }}</el-descriptions-item>
         <el-descriptions-item label="审批状态">
           <el-tag :type="statusTagType">{{ statusText }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="申请时间">{{ detail.application_time }}</el-descriptions-item>
       </el-descriptions>
+    </el-card>
+
+    <!-- 来访人员 -->
+    <el-card shadow="never" class="mb-20px">
+      <template #header>
+        <span class="font-bold">来访人员（{{ (detail.visitors || []).length }}人）</span>
+      </template>
+      <el-table :data="detail.visitors || []" size="small" border>
+        <el-table-column prop="name" label="姓名" min-width="100" />
+        <el-table-column prop="id_card" label="身份证" min-width="160" />
+        <el-table-column prop="phone" label="电话" min-width="130" />
+        <el-table-column prop="unit" label="单位" min-width="140" />
+      </el-table>
     </el-card>
 
     <!-- 审批流程图 -->

@@ -1,3 +1,5 @@
+import json
+
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -91,11 +93,28 @@ class BusinessMemberUpdate(BaseModel):
 
 class WorkOrderCreate(BaseModel):
     company: str
-    visit_time: str = ""
-    visit_scale: str = ""
+    visitors: list = []
+    entry_time: str = ""
+    exit_time: str = ""
+    reason: str = ""
+    area: str = ""
     contact_name: str = ""
     contact_phone: str = ""
-    lead_person: str = ""
+    accompanying_person: str = ""
+    is_draft: bool = False
+
+
+class ReservationCreate(BaseModel):
+    visitor_id: int
+    company: str
+    visitors: list = []
+    entry_time: str = ""
+    exit_time: str = ""
+    reason: str = ""
+    area: str = ""
+    contact_name: str = ""
+    contact_phone: str = ""
+    accompanying_person: str = ""
 
 
 class ApprovalAction(BaseModel):
@@ -149,6 +168,21 @@ def find_admin_by_role(cursor, role: str):
         (role,),
     )
     return cursor.fetchone()
+
+
+def sync_biz_status(cursor, approval_record_id: int, status: str):
+    """根据审批记录回写工单或预约的状态。"""
+    cursor.execute(
+        "SELECT work_order_id, reservation_id FROM approval_records WHERE id = %s",
+        (approval_record_id,),
+    )
+    ar = cursor.fetchone()
+    if not ar:
+        return
+    if ar.get("work_order_id"):
+        cursor.execute("UPDATE work_orders SET status = %s WHERE id = %s", (status, ar["work_order_id"]))
+    elif ar.get("reservation_id"):
+        cursor.execute("UPDATE reservations SET status = %s WHERE id = %s", (status, ar["reservation_id"]))
 
 
 def start_approval(cursor, work_order_id: int):
@@ -224,27 +258,21 @@ def test_database():
 
 @app.post("/api/visitor/register")
 def visitor_register(data: VisitorRegister):
-    """访客登记：按公司名匹配已审批通过的工单，命中则绑定。"""
+    """访客注册：任意访客都可注册，无需匹配工单。"""
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM users WHERE phone = %s", (data.phone,))
+            if cursor.fetchone():
+                return {"success": False, "message": "该手机号已注册"}
             cursor.execute(
-                "SELECT id FROM work_orders WHERE company = %s AND status = 'approved' "
-                "ORDER BY id DESC LIMIT 1",
-                (data.company,),
-            )
-            wo = cursor.fetchone()
-            if not wo:
-                return {"success": False, "message": "未找到匹配的已审批工单，请联系业务部先提交工单"}
-
-            cursor.execute(
-                "INSERT INTO users (name, phone, password, company, identity_type, visit_purpose, work_order_id) "
-                "VALUES (%s, %s, %s, %s, '', '', %s)",
-                (data.name, data.phone, data.password, data.company, wo["id"]),
+                "INSERT INTO users (name, phone, password, company, identity_type, visit_purpose) "
+                "VALUES (%s, %s, %s, %s, '', '')",
+                (data.name, data.phone, data.password, data.company),
             )
             connection.commit()
             user_id = cursor.lastrowid
-        return {"success": True, "user_id": user_id, "work_order_id": wo["id"]}
+        return {"success": True, "user_id": user_id}
     except Exception as e:
         connection.rollback()
         return {"success": False, "message": str(e)}
@@ -301,29 +329,45 @@ def submit_exam(data: ExamSubmit):
             )
             exam_id = cursor.lastrowid
 
-            # 4. 通过且绑定工单 → 生成准入凭证
+            # 4. 通过且（有已通过工单 或 已通过预约）→ 生成准入凭证
             credential = None
             if passed:
-                cursor.execute(
-                    "SELECT work_order_id FROM users WHERE id = %s",
-                    (data.user_id,),
-                )
+                cursor.execute("SELECT company FROM users WHERE id = %s", (data.user_id,))
                 user_row = cursor.fetchone()
-                work_order_id = user_row.get("work_order_id") if user_row else None
-                if work_order_id:
+                if user_row:
+                    company = user_row["company"]
                     cursor.execute(
-                        "INSERT INTO credentials (user_id, work_order_id, exam_record_id) "
-                        "VALUES (%s, %s, %s)",
-                        (data.user_id, work_order_id, exam_id),
+                        "SELECT id FROM work_orders WHERE company = %s AND status = 'approved' "
+                        "ORDER BY id DESC LIMIT 1",
+                        (company,),
                     )
-                    credential = {"work_order_id": work_order_id, "exam_record_id": exam_id}
+                    wo = cursor.fetchone()
+                    cursor.execute(
+                        "SELECT id FROM reservations WHERE visitor_id = %s AND status = 'approved' "
+                        "ORDER BY id DESC LIMIT 1",
+                        (data.user_id,),
+                    )
+                    rv = cursor.fetchone()
+                    work_order_id = wo["id"] if wo else None
+                    reservation_id = rv["id"] if rv else None
+                    if work_order_id or reservation_id:
+                        cursor.execute(
+                            "INSERT INTO credentials (user_id, work_order_id, reservation_id, exam_record_id) "
+                            "VALUES (%s, %s, %s, %s)",
+                            (data.user_id, work_order_id, reservation_id, exam_id),
+                        )
+                        credential = {
+                            "work_order_id": work_order_id,
+                            "reservation_id": reservation_id,
+                            "exam_record_id": exam_id,
+                        }
 
             connection.commit()
 
             if credential:
                 message = "考试通过，已生成准入凭证"
             elif passed:
-                message = "考试通过"
+                message = "考试通过，但尚未获得准入资格（工单或预约未通过）"
             else:
                 message = "考试未通过"
 
@@ -351,11 +395,13 @@ def get_credential(user_id: int):
                 """
                 SELECT c.id, c.created_at AS issued_at,
                        u.name, u.phone, u.company,
-                       w.company AS work_order_company, w.visit_time, w.lead_person,
+                       COALESCE(w.entry_time, r.entry_time) AS entry_time,
+                       COALESCE(w.accompanying_person, r.accompanying_person) AS accompanying_person,
                        e.score
                 FROM credentials c
                 JOIN users u ON c.user_id = u.id
-                JOIN work_orders w ON c.work_order_id = w.id
+                LEFT JOIN work_orders w ON c.work_order_id = w.id
+                LEFT JOIN reservations r ON c.reservation_id = r.id
                 JOIN exam_records e ON c.exam_record_id = e.id
                 WHERE c.user_id = %s
                 ORDER BY c.id DESC LIMIT 1
@@ -399,15 +445,54 @@ def visitor_login(data: VisitorLogin):
         connection.close()
 
 
+@app.get("/api/visitor/status/{user_id}")
+def visitor_status(user_id: int):
+    """访客六态：未预约/预约审批中/预约成功/工单审批中/审批通过/审批未通过。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT company FROM users WHERE id = %s", (user_id,))
+            user = cursor.fetchone()
+            if not user:
+                return {"success": False, "message": "用户不存在"}
+            company = user["company"]
+
+            cursor.execute(
+                "SELECT status FROM work_orders WHERE company = %s AND status != 'draft' "
+                "ORDER BY id DESC LIMIT 1",
+                (company,),
+            )
+            wo = cursor.fetchone()
+            cursor.execute(
+                "SELECT status FROM reservations WHERE visitor_id = %s ORDER BY id DESC LIMIT 1",
+                (user_id,),
+            )
+            rv = cursor.fetchone()
+
+            status = "未预约"
+            if wo and wo["status"] == 'approved':
+                status = "审批通过"
+            elif rv and rv["status"] == 'approved':
+                status = "预约成功"
+            elif wo and wo["status"] == 'pending':
+                status = "工单审批中"
+            elif rv and rv["status"] == 'pending':
+                status = "预约审批中"
+            elif wo and wo["status"] == 'rejected':
+                status = "审批未通过"
+
+        return {"success": True, "status": status}
+    finally:
+        connection.close()
+
+
 @app.get("/api/visitor/info/{user_id}")
 def visitor_info(user_id: int):
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT u.id, u.name, u.phone, u.company, u.work_order_id, "
-                "w.company AS work_order_company, w.visit_time, w.lead_person, w.status AS work_order_status "
-                "FROM users u LEFT JOIN work_orders w ON u.work_order_id = w.id WHERE u.id = %s",
+                "SELECT id, name, phone, company FROM users WHERE id = %s",
                 (user_id,),
             )
             info = cursor.fetchone()
@@ -439,8 +524,13 @@ def visitor_credentials(user_id: int):
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT c.id, c.created_at AS issued_at, w.company, w.visit_time, w.lead_person, e.score "
-                "FROM credentials c JOIN work_orders w ON c.work_order_id = w.id "
+                "SELECT c.id, c.created_at AS issued_at, "
+                "COALESCE(w.company, r.company) AS company, "
+                "COALESCE(w.entry_time, r.entry_time) AS entry_time, "
+                "COALESCE(w.accompanying_person, r.accompanying_person) AS accompanying_person, "
+                "e.score "
+                "FROM credentials c LEFT JOIN work_orders w ON c.work_order_id = w.id "
+                "LEFT JOIN reservations r ON c.reservation_id = r.id "
                 "JOIN exam_records e ON c.exam_record_id = e.id "
                 "WHERE c.user_id = %s ORDER BY c.id DESC",
                 (user_id,),
@@ -515,24 +605,30 @@ def create_work_order(data: WorkOrderCreate, member: dict = Depends(get_current_
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
+            visitors_json = json.dumps(data.visitors, ensure_ascii=False)
+            status = 'draft' if data.is_draft else 'pending'
             cursor.execute(
                 """
                 INSERT INTO work_orders
-                (business_member_id, company, visit_time, visit_scale, contact_name, contact_phone, lead_person, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending')
+                (business_member_id, company, visitors, entry_time, exit_time, reason, area,
+                 contact_name, contact_phone, accompanying_person, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (member["id"], data.company, data.visit_time, data.visit_scale,
-                 data.contact_name, data.contact_phone, data.lead_person),
+                (member["id"], data.company, visitors_json, data.entry_time, data.exit_time,
+                 data.reason, data.area, data.contact_name, data.contact_phone,
+                 data.accompanying_person, status),
             )
             work_order_id = cursor.lastrowid
 
-            err = start_approval(cursor, work_order_id)
-            if err:
-                connection.rollback()
-                return {"success": False, "message": err}
+            if not data.is_draft:
+                err = start_approval(cursor, work_order_id)
+                if err:
+                    connection.rollback()
+                    return {"success": False, "message": err}
 
             connection.commit()
-        return {"success": True, "work_order_id": work_order_id, "message": "工单已提交，进入审批流程"}
+        msg = "草稿已保存" if data.is_draft else "工单已提交，进入审批流程"
+        return {"success": True, "work_order_id": work_order_id, "message": msg}
     except Exception as e:
         connection.rollback()
         return {"success": False, "message": str(e)}
@@ -547,8 +643,8 @@ def get_my_work_orders(member: dict = Depends(get_current_business_member)):
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, company, visit_time, visit_scale, contact_name, contact_phone,
-                       lead_person, status, created_at
+                SELECT id, company, visitors, entry_time, exit_time, reason, area,
+                       contact_name, contact_phone, accompanying_person, status, created_at
                 FROM work_orders
                 WHERE business_member_id = %s
                 ORDER BY id DESC
@@ -556,6 +652,173 @@ def get_my_work_orders(member: dict = Depends(get_current_business_member)):
                 (member["id"],),
             )
             rows = cursor.fetchall()
+        for row in rows:
+            row["visitors"] = json.loads(row["visitors"]) if row.get("visitors") else []
+        return {"success": True, "list": rows}
+    finally:
+        connection.close()
+
+
+@app.get("/api/work-orders/{work_order_id}")
+def get_work_order_detail(work_order_id: int, member: dict = Depends(get_current_business_member)):
+    """业务部查看工单详情 + 审批进度。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, company, visitors, entry_time, exit_time, reason, area, "
+                "contact_name, contact_phone, accompanying_person, status, created_at "
+                "FROM work_orders WHERE id = %s",
+                (work_order_id,),
+            )
+            wo = cursor.fetchone()
+            if not wo:
+                return {"success": False, "message": "工单不存在"}
+            wo["visitors"] = json.loads(wo["visitors"]) if wo.get("visitors") else []
+
+            progress = {"current_step": None, "history": []}
+            cursor.execute("SELECT id FROM approval_records WHERE work_order_id = %s LIMIT 1", (work_order_id,))
+            ar = cursor.fetchone()
+            if ar:
+                cursor.execute(
+                    "SELECT s.step_name FROM approval_tasks t JOIN approval_steps s ON t.step_id = s.id "
+                    "WHERE t.approval_record_id = %s AND t.status = 'pending' LIMIT 1",
+                    (ar["id"],),
+                )
+                cur = cursor.fetchone()
+                if cur:
+                    progress["current_step"] = cur["step_name"]
+                cursor.execute(
+                    "SELECT h.action, h.comment, h.created_at, s.step_name, a.real_name AS approver_name "
+                    "FROM approval_history h JOIN approval_steps s ON h.step_id = s.id "
+                    "JOIN admin_users a ON h.admin_id = a.id "
+                    "WHERE h.approval_record_id = %s ORDER BY h.created_at ASC",
+                    (ar["id"],),
+                )
+                progress["history"] = cursor.fetchall()
+            wo["progress"] = progress
+        return {"success": True, "work_order": wo}
+    finally:
+        connection.close()
+
+
+@app.put("/api/work-orders/{work_order_id}")
+def update_work_order(work_order_id: int, data: WorkOrderCreate, member: dict = Depends(get_current_business_member)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            visitors_json = json.dumps(data.visitors, ensure_ascii=False)
+            cursor.execute(
+                "UPDATE work_orders SET company=%s, visitors=%s, entry_time=%s, exit_time=%s, reason=%s, "
+                "area=%s, contact_name=%s, contact_phone=%s, accompanying_person=%s WHERE id=%s AND status='draft'",
+                (data.company, visitors_json, data.entry_time, data.exit_time, data.reason,
+                 data.area, data.contact_name, data.contact_phone, data.accompanying_person, work_order_id),
+            )
+            connection.commit()
+        return {"success": True, "message": "草稿已更新"}
+    except Exception as e:
+        connection.rollback()
+        return {"success": False, "message": str(e)}
+    finally:
+        connection.close()
+
+
+@app.post("/api/work-orders/{work_order_id}/submit")
+def submit_work_order(work_order_id: int, member: dict = Depends(get_current_business_member)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT status FROM work_orders WHERE id = %s", (work_order_id,))
+            wo = cursor.fetchone()
+            if not wo:
+                return {"success": False, "message": "工单不存在"}
+            if wo["status"] != 'draft':
+                return {"success": False, "message": "只有草稿可以提交"}
+            cursor.execute("UPDATE work_orders SET status='pending' WHERE id = %s", (work_order_id,))
+            err = start_approval(cursor, work_order_id)
+            if err:
+                connection.rollback()
+                return {"success": False, "message": err}
+            connection.commit()
+        return {"success": True, "message": "工单已提交，进入审批流程"}
+    except Exception as e:
+        connection.rollback()
+        return {"success": False, "message": str(e)}
+    finally:
+        connection.close()
+
+
+@app.delete("/api/work-orders/{work_order_id}")
+def delete_work_order(work_order_id: int, member: dict = Depends(get_current_business_member)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM work_orders WHERE id = %s AND status = 'draft'", (work_order_id,))
+            connection.commit()
+        return {"success": True, "message": "草稿已删除"}
+    except Exception as e:
+        connection.rollback()
+        return {"success": False, "message": str(e)}
+    finally:
+        connection.close()
+
+
+@app.post("/api/reservations")
+def create_reservation(data: ReservationCreate):
+    """访客快速预约：部门主管直属单级审批。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            visitors_json = json.dumps(data.visitors, ensure_ascii=False)
+            cursor.execute(
+                "INSERT INTO reservations (visitor_id, company, visitors, entry_time, exit_time, reason, "
+                "area, contact_name, contact_phone, accompanying_person, status) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending')",
+                (data.visitor_id, data.company, visitors_json, data.entry_time, data.exit_time,
+                 data.reason, data.area, data.contact_name, data.contact_phone, data.accompanying_person),
+            )
+            reservation_id = cursor.lastrowid
+
+            dept_admin = find_admin_by_role(cursor, '部门主管')
+            if not dept_admin:
+                connection.rollback()
+                return {"success": False, "message": "找不到部门主管，暂时无法预约"}
+            cursor.execute("SELECT id FROM approval_steps WHERE required_role = '部门主管' LIMIT 1")
+            step = cursor.fetchone()
+
+            cursor.execute(
+                "INSERT INTO approval_records (reservation_id, status) VALUES (%s, 'pending')",
+                (reservation_id,),
+            )
+            approval_record_id = cursor.lastrowid
+            cursor.execute(
+                "INSERT INTO approval_tasks (approval_record_id, step_id, admin_id, status) "
+                "VALUES (%s, %s, %s, 'pending')",
+                (approval_record_id, step["id"] if step else None, dept_admin["id"]),
+            )
+            connection.commit()
+        return {"success": True, "reservation_id": reservation_id, "message": "预约已提交，等待部门主管审批"}
+    except Exception as e:
+        connection.rollback()
+        return {"success": False, "message": str(e)}
+    finally:
+        connection.close()
+
+
+@app.get("/api/reservations/mine")
+def get_my_reservations(visitor_id: int = Query(...)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, company, visitors, entry_time, exit_time, reason, area, "
+                "contact_name, contact_phone, accompanying_person, status, created_at "
+                "FROM reservations WHERE visitor_id = %s ORDER BY id DESC",
+                (visitor_id,),
+            )
+            rows = cursor.fetchall()
+        for row in rows:
+            row["visitors"] = json.loads(row["visitors"]) if row.get("visitors") else []
         return {"success": True, "list": rows}
     finally:
         connection.close()
@@ -663,12 +926,21 @@ def get_pending_tasks(current_admin: dict = Depends(get_current_admin)):
                     approval_records.id AS approval_record_id,
                     approval_tasks.status,
                     approval_tasks.created_at,
-                    work_orders.company, work_orders.visit_time, work_orders.visit_scale,
-                    work_orders.contact_name, work_orders.contact_phone, work_orders.lead_person,
+                    COALESCE(work_orders.company, reservations.company) AS company,
+                    COALESCE(work_orders.entry_time, reservations.entry_time) AS entry_time,
+                    COALESCE(work_orders.exit_time, reservations.exit_time) AS exit_time,
+                    COALESCE(work_orders.reason, reservations.reason) AS reason,
+                    COALESCE(work_orders.area, reservations.area) AS area,
+                    COALESCE(work_orders.contact_name, reservations.contact_name) AS contact_name,
+                    COALESCE(work_orders.contact_phone, reservations.contact_phone) AS contact_phone,
+                    COALESCE(work_orders.accompanying_person, reservations.accompanying_person) AS accompanying_person,
+                    COALESCE(work_orders.visitors, reservations.visitors) AS visitors,
+                    CASE WHEN work_orders.id IS NOT NULL THEN 'work_order' ELSE 'reservation' END AS biz_type,
                     approval_steps.step_name
                 FROM approval_tasks
                 JOIN approval_records ON approval_tasks.approval_record_id = approval_records.id
-                JOIN work_orders ON approval_records.work_order_id = work_orders.id
+                LEFT JOIN work_orders ON approval_records.work_order_id = work_orders.id
+                LEFT JOIN reservations ON approval_records.reservation_id = reservations.id
                 JOIN approval_steps ON approval_tasks.step_id = approval_steps.id
                 WHERE approval_tasks.admin_id = %s AND approval_tasks.status = 'pending'
                 ORDER BY approval_tasks.created_at ASC
@@ -676,6 +948,8 @@ def get_pending_tasks(current_admin: dict = Depends(get_current_admin)):
                 (current_admin["id"],),
             )
             tasks = cursor.fetchall()
+        for t in tasks:
+            t["visitors"] = json.loads(t["visitors"]) if t.get("visitors") else []
         return ok({"list": tasks, "total": len(tasks)})
     finally:
         connection.close()
@@ -695,12 +969,18 @@ def get_completed_tasks(current_admin: dict = Depends(get_current_admin)):
                     approval_tasks.comment,
                     approval_tasks.approved_at,
                     approval_tasks.created_at,
-                    work_orders.company, work_orders.visit_time, work_orders.visit_scale,
-                    work_orders.contact_name, work_orders.contact_phone, work_orders.lead_person,
+                    COALESCE(work_orders.company, reservations.company) AS company,
+                    COALESCE(work_orders.entry_time, reservations.entry_time) AS entry_time,
+                    COALESCE(work_orders.reason, reservations.reason) AS reason,
+                    COALESCE(work_orders.area, reservations.area) AS area,
+                    COALESCE(work_orders.accompanying_person, reservations.accompanying_person) AS accompanying_person,
+                    COALESCE(work_orders.visitors, reservations.visitors) AS visitors,
+                    CASE WHEN work_orders.id IS NOT NULL THEN 'work_order' ELSE 'reservation' END AS biz_type,
                     approval_steps.step_name
                 FROM approval_tasks
                 JOIN approval_records ON approval_tasks.approval_record_id = approval_records.id
-                JOIN work_orders ON approval_records.work_order_id = work_orders.id
+                LEFT JOIN work_orders ON approval_records.work_order_id = work_orders.id
+                LEFT JOIN reservations ON approval_records.reservation_id = reservations.id
                 JOIN approval_steps ON approval_tasks.step_id = approval_steps.id
                 WHERE approval_tasks.admin_id = %s
                 AND approval_tasks.status IN ('approved', 'rejected')
@@ -709,6 +989,8 @@ def get_completed_tasks(current_admin: dict = Depends(get_current_admin)):
                 (current_admin["id"],),
             )
             tasks = cursor.fetchall()
+        for t in tasks:
+            t["visitors"] = json.loads(t["visitors"]) if t.get("visitors") else []
         return ok({"list": tasks, "total": len(tasks)})
     finally:
         connection.close()
@@ -776,11 +1058,7 @@ def handle_approval(
                     "UPDATE approval_records SET status = 'rejected' WHERE id = %s",
                     (task["approval_record_id"],),
                 )
-                cursor.execute(
-                    "UPDATE work_orders SET status = 'rejected' "
-                    "WHERE id = (SELECT work_order_id FROM approval_records WHERE id = %s)",
-                    (task["approval_record_id"],),
-                )
+                sync_biz_status(cursor, task["approval_record_id"], "rejected")
                 connection.commit()
                 return ok({"status": "rejected"}, "审批已拒绝，流程结束")
 
@@ -797,11 +1075,7 @@ def handle_approval(
                     "UPDATE approval_records SET status = 'approved' WHERE id = %s",
                     (task["approval_record_id"],),
                 )
-                cursor.execute(
-                    "UPDATE work_orders SET status = 'approved' "
-                    "WHERE id = (SELECT work_order_id FROM approval_records WHERE id = %s)",
-                    (task["approval_record_id"],),
-                )
+                sync_biz_status(cursor, task["approval_record_id"], "approved")
                 connection.commit()
                 return ok({"status": "approved"}, "审批全部完成，流程结束")
 
@@ -899,8 +1173,10 @@ def get_work_orders(
                 SELECT
                     work_orders.id AS work_order_id,
                     approval_records.id AS approval_record_id,
-                    work_orders.company, work_orders.visit_time, work_orders.visit_scale,
-                    work_orders.contact_name, work_orders.contact_phone, work_orders.lead_person,
+                    work_orders.company, work_orders.entry_time, work_orders.exit_time,
+                    work_orders.reason, work_orders.area,
+                    work_orders.contact_name, work_orders.contact_phone,
+                    work_orders.accompanying_person, work_orders.visitors,
                     work_orders.status AS approval_status,
                     work_orders.created_at AS application_time,
                     (SELECT s.step_name FROM approval_tasks t
@@ -915,6 +1191,8 @@ def get_work_orders(
                 params,
             )
             rows = cursor.fetchall()
+        for row in rows:
+            row["visitors"] = json.loads(row["visitors"]) if row.get("visitors") else []
         return ok({"list": rows, "total": len(rows)})
     finally:
         connection.close()
@@ -929,12 +1207,20 @@ def get_approval_detail(record_id: int, current_admin: dict = Depends(get_curren
             cursor.execute(
                 """
                 SELECT
-                    work_orders.company, work_orders.visit_time, work_orders.visit_scale,
-                    work_orders.contact_name, work_orders.contact_phone, work_orders.lead_person,
+                    COALESCE(work_orders.company, reservations.company) AS company,
+                    COALESCE(work_orders.entry_time, reservations.entry_time) AS entry_time,
+                    COALESCE(work_orders.exit_time, reservations.exit_time) AS exit_time,
+                    COALESCE(work_orders.reason, reservations.reason) AS reason,
+                    COALESCE(work_orders.area, reservations.area) AS area,
+                    COALESCE(work_orders.contact_name, reservations.contact_name) AS contact_name,
+                    COALESCE(work_orders.contact_phone, reservations.contact_phone) AS contact_phone,
+                    COALESCE(work_orders.accompanying_person, reservations.accompanying_person) AS accompanying_person,
+                    COALESCE(work_orders.visitors, reservations.visitors) AS visitors,
                     approval_records.status AS approval_status,
                     approval_records.created_at AS application_time
                 FROM approval_records
-                JOIN work_orders ON approval_records.work_order_id = work_orders.id
+                LEFT JOIN work_orders ON approval_records.work_order_id = work_orders.id
+                LEFT JOIN reservations ON approval_records.reservation_id = reservations.id
                 WHERE approval_records.id = %s
                 """,
                 (record_id,),
@@ -942,6 +1228,7 @@ def get_approval_detail(record_id: int, current_admin: dict = Depends(get_curren
             detail = cursor.fetchone()
             if not detail:
                 return fail("审批记录不存在")
+            detail["visitors"] = json.loads(detail["visitors"]) if detail.get("visitors") else []
 
             # 2. 只要还有 pending 任务，状态强制为 pending
             cursor.execute(

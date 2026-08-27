@@ -39,3 +39,19 @@
   text-align: right;
   font-size: 28rpx;
 }
+.reserve-btn {
+  margin-top: 40rpx;
+  text-align: center;
+  border: 1rpx solid #1677ff;
+  color: #1677ff;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  font-size: 30rpx;
+}
+.status-tip {
+  position: fixed;
+  left: 20rpx;
+  bottom: 20rpx;
+  font-size: 22rpx;
+  color: #999;
+}

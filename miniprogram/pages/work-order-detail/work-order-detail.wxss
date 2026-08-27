@@ -1,0 +1,52 @@
+.page {
+  padding: 30rpx;
+}
+.card {
+  background: #fff;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+}
+.card-title {
+  font-size: 30rpx;
+  font-weight: bold;
+  margin-bottom: 16rpx;
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+  font-size: 28rpx;
+}
+.label {
+  color: #999;
+}
+.person {
+  padding: 10rpx 0;
+  font-size: 26rpx;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+.hist-item {
+  padding: 14rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+.hist-main {
+  font-size: 28rpx;
+}
+.hist-comment {
+  font-size: 26rpx;
+  color: #666;
+  margin-top: 6rpx;
+}
+.hist-time {
+  font-size: 24rpx;
+  color: #999;
+  margin-top: 4rpx;
+}
+.empty {
+  color: #999;
+  font-size: 26rpx;
+  padding: 10rpx 0;
+}

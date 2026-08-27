@@ -43,8 +43,7 @@ Page({
 
   removeVisitor(e) {
     const idx = Number(e.currentTarget.dataset.index)
-    const visitors = this.data.visitors.filter((_, i) => i !== idx)
-    this.setData({ visitors })
+    this.setData({ visitors: this.data.visitors.filter((_, i) => i !== idx) })
   },
 
   onVisitorInput(e) {
@@ -53,54 +52,38 @@ Page({
     this.setData({ [`visitors[${idx}].${field}`]: e.detail.value })
   },
 
-  buildPayload(isDraft) {
+  submit() {
     const entry_time = this.data.entry_date + (this.data.entry_time ? ' ' + this.data.entry_time : '')
     const exit_time = this.data.exit_date + (this.data.exit_time ? ' ' + this.data.exit_time : '')
-    return {
-      company: this.data.company,
-      visitors: this.data.visitors,
-      entry_time,
-      exit_time,
-      reason: this.data.reason,
-      area: this.data.area,
-      contact_name: this.data.contact_name,
-      contact_phone: this.data.contact_phone,
-      accompanying_person: this.data.accompanying_person,
-      is_draft: isDraft
-    }
-  },
-
-  submit() {
-    const payload = this.buildPayload(false)
-    if (!payload.company.trim()) {
-      wx.showToast({ title: '请输入来访单位', icon: 'none' })
+    const userId = wx.getStorageSync('user_id')
+    if (!userId) {
+      wx.showToast({ title: '请先登录', icon: 'none' })
       return
     }
-    this.doSubmit(payload)
-  },
-
-  saveDraft() {
-    this.doSubmit(this.buildPayload(true))
-  },
-
-  doSubmit(payload) {
-    const token = wx.getStorageSync('business_token')
-    if (!token) {
-      wx.showToast({ title: '请先登录', icon: 'none' })
+    if (!this.data.company.trim()) {
+      wx.showToast({ title: '请输入来访单位', icon: 'none' })
       return
     }
     wx.showLoading({ title: '提交中' })
     wx.request({
-      url: 'http://127.0.0.1:8000/api/work-orders',
+      url: 'http://127.0.0.1:8000/api/reservations',
       method: 'POST',
-      header: {
-        'content-type': 'application/json',
-        'Authorization': 'Bearer ' + token
+      header: { 'content-type': 'application/json' },
+      data: {
+        visitor_id: userId,
+        company: this.data.company,
+        visitors: this.data.visitors,
+        entry_time,
+        exit_time,
+        reason: this.data.reason,
+        area: this.data.area,
+        contact_name: this.data.contact_name,
+        contact_phone: this.data.contact_phone,
+        accompanying_person: this.data.accompanying_person
       },
-      data: payload,
       success: (res) => {
         if (res.data.success) {
-          wx.showToast({ title: res.data.message || '成功', icon: 'success' })
+          wx.showToast({ title: '预约已提交', icon: 'success' })
           setTimeout(() => wx.navigateBack(), 1200)
         } else {
           wx.showToast({ title: res.data.message || '提交失败', icon: 'none' })

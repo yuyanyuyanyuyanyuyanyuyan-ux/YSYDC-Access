@@ -4,11 +4,18 @@
       <span class="font-bold">待办任务</span>
     </template>
     <el-table v-loading="loading" :data="list" stripe>
-      <el-table-column prop="company" label="访客公司" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="visit_time" label="访问时间" min-width="130" />
-      <el-table-column prop="visit_scale" label="访问规模" width="90" />
-      <el-table-column prop="contact_name" label="联络人" min-width="100" />
-      <el-table-column prop="lead_person" label="带领人" min-width="100" />
+      <el-table-column label="类型" width="80">
+        <template #default="{ row }">
+          <el-tag :type="row.biz_type === 'reservation' ? 'warning' : 'info'" size="small">
+            {{ row.biz_type === 'reservation' ? '预约' : '工单' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="company" label="来访单位" min-width="140" show-overflow-tooltip />
+      <el-table-column prop="entry_time" label="进入时间" min-width="130" />
+      <el-table-column prop="reason" label="进出原因" min-width="100" />
+      <el-table-column prop="area" label="活动区域" min-width="110" />
+      <el-table-column prop="accompanying_person" label="陪同人员" min-width="100" />
       <el-table-column prop="step_name" label="当前审批节点" min-width="130" />
       <el-table-column prop="created_at" label="提交时间" min-width="160" />
       <el-table-column label="操作" width="160" fixed="right">

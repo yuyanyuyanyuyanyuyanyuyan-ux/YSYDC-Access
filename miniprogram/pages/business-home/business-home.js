@@ -1,13 +1,18 @@
 Page({
   data: {
-    list: [],
+    tab: 0,
+    orders: [],
+    drafts: [],
     member: null
   },
 
   onShow() {
-    const member = wx.getStorageSync('business_member')
-    this.setData({ member })
+    this.setData({ member: wx.getStorageSync('business_member') })
     this.loadList()
+  },
+
+  switchTab(e) {
+    this.setData({ tab: Number(e.currentTarget.dataset.tab) })
   },
 
   loadList() {
@@ -22,7 +27,11 @@ Page({
       header: { 'Authorization': 'Bearer ' + token },
       success: (res) => {
         if (res.data.success) {
-          this.setData({ list: res.data.list || [] })
+          const all = res.data.list || []
+          this.setData({
+            orders: all.filter((w) => w.status !== 'draft'),
+            drafts: all.filter((w) => w.status === 'draft')
+          })
         }
       },
       fail: () => wx.showToast({ title: '无法连接服务器', icon: 'none' })
@@ -32,11 +41,16 @@ Page({
   statusText(status) {
     if (status === 'approved') return '已通过'
     if (status === 'rejected') return '已驳回'
-    return '待审批'
+    if (status === 'pending') return '审批中'
+    return '草稿'
   },
 
   goCreate() {
     wx.navigateTo({ url: '/pages/work-order-form/work-order-form' })
+  },
+
+  goDetail(e) {
+    wx.navigateTo({ url: '/pages/work-order-detail/work-order-detail?id=' + e.currentTarget.dataset.id })
   },
 
   logout() {

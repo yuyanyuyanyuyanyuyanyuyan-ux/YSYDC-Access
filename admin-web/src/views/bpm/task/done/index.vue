@@ -4,8 +4,15 @@
       <span class="font-bold">已办任务</span>
     </template>
     <el-table v-loading="loading" :data="list" stripe>
-      <el-table-column prop="company" label="访客公司" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="visit_time" label="访问时间" min-width="130" />
+      <el-table-column label="类型" width="80">
+        <template #default="{ row }">
+          <el-tag :type="row.biz_type === 'reservation' ? 'warning' : 'info'" size="small">
+            {{ row.biz_type === 'reservation' ? '预约' : '工单' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="company" label="来访单位" min-width="140" show-overflow-tooltip />
+      <el-table-column prop="entry_time" label="进入时间" min-width="130" />
       <el-table-column prop="step_name" label="审批节点" min-width="130" />
       <el-table-column label="处理结果" width="100">
         <template #default="{ row }">

@@ -5,14 +5,32 @@
     <view class="subtitle" wx:if="{{member}}">{{member.real_name || member.username}}</view>
   </view>
 
-  <view class="list">
-    <view wx:for="{{list}}" wx:key="id" class="item">
-      <view class="item-company">{{item.company}}</view>
-      <view class="item-row">访问时间：{{item.visit_time}}</view>
-      <view class="item-row">联络人：{{item.contact_name}} {{item.contact_phone}}</view>
-      <view class="item-status {{item.status}}">{{statusText(item.status)}}</view>
+  <view class="tabs">
+    <view class="tab {{tab === 0 ? 'active' : ''}}" data-tab="0" bindtap="switchTab">工单</view>
+    <view class="tab {{tab === 1 ? 'active' : ''}}" data-tab="1" bindtap="switchTab">草稿箱</view>
+  </view>
+
+  <view class="list" wx:if="{{tab === 0}}">
+    <view wx:for="{{orders}}" wx:key="id" class="item" data-id="{{item.id}}" bindtap="goDetail">
+      <view class="item-top">
+        <view class="item-company">{{item.company}}</view>
+        <view class="item-status {{item.status}}">{{statusText(item.status)}}</view>
+      </view>
+      <view class="item-row">进入时间：{{item.entry_time || '—'}}</view>
+      <view class="item-row">进出原因：{{item.reason || '—'}}</view>
     </view>
-    <view wx:if="{{!list.length}}" class="empty">暂无工单</view>
+    <view wx:if="{{!orders.length}}" class="empty">暂无工单</view>
+  </view>
+
+  <view class="list" wx:if="{{tab === 1}}">
+    <view wx:for="{{drafts}}" wx:key="id" class="item" data-id="{{item.id}}" bindtap="goDetail">
+      <view class="item-top">
+        <view class="item-company">{{item.company || '未命名草稿'}}</view>
+        <view class="item-status draft">草稿</view>
+      </view>
+      <view class="item-row">进入时间：{{item.entry_time || '—'}}</view>
+    </view>
+    <view wx:if="{{!drafts.length}}" class="empty">暂无草稿</view>
   </view>
 
   <button class="btn primary" bindtap="goCreate">新建工单</button>

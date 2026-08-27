@@ -1,0 +1,39 @@
+<view class="page">
+
+  <view wx:if="{{workOrder}}" class="content">
+
+    <view class="card">
+      <view class="card-title">工单信息</view>
+      <view class="row"><text class="label">来访单位</text><text>{{workOrder.company}}</text></view>
+      <view class="row"><text class="label">进入时间</text><text>{{workOrder.entry_time || '—'}}</text></view>
+      <view class="row"><text class="label">出去时间</text><text>{{workOrder.exit_time || '—'}}</text></view>
+      <view class="row"><text class="label">进出原因</text><text>{{workOrder.reason || '—'}}</text></view>
+      <view class="row"><text class="label">活动区域</text><text>{{workOrder.area || '—'}}</text></view>
+      <view class="row"><text class="label">联系人</text><text>{{workOrder.contact_name}} {{workOrder.contact_phone}}</text></view>
+      <view class="row"><text class="label">陪同人员</text><text>{{workOrder.accompanying_person || '—'}}</text></view>
+    </view>
+
+    <view class="card">
+      <view class="card-title">来访人员</view>
+      <view wx:for="{{workOrder.visitors}}" wx:key="index" class="person">
+        {{item.name}} · {{item.id_card}} · {{item.phone}} · {{item.unit}}
+      </view>
+      <view wx:if="{{!workOrder.visitors.length}}" class="empty">无</view>
+    </view>
+
+    <view class="card">
+      <view class="card-title">审批进度</view>
+      <view wx:if="{{workOrder.progress.current_step}}" class="row">
+        <text class="label">当前节点</text><text>{{workOrder.progress.current_step}}</text>
+      </view>
+      <view wx:for="{{workOrder.progress.history}}" wx:key="index" class="hist-item">
+        <view class="hist-main">{{item.step_name}} · {{item.approver_name}} · {{item.action === 'approved' ? '通过' : '驳回'}}</view>
+        <view wx:if="{{item.comment}}" class="hist-comment">{{item.comment}}</view>
+        <view class="hist-time">{{item.created_at}}</view>
+      </view>
+      <view wx:if="{{!workOrder.progress.history.length && !workOrder.progress.current_step}}" class="empty">尚未开始审批</view>
+    </view>
+
+  </view>
+
+</view>

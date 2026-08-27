@@ -1,7 +1,7 @@
 <view class="page">
 
   <view class="header">
-    <view class="title">填写工单</view>
+    <view class="title">快速预约</view>
   </view>
 
   <view class="form">
@@ -80,9 +80,6 @@
 
   </view>
 
-  <view class="actions">
-    <button class="btn draft" bindtap="saveDraft">存草稿</button>
-    <button class="btn submit" bindtap="submit">提交工单</button>
-  </view>
+  <button class="btn submit" bindtap="submit">提交预约</button>
 
 </view>

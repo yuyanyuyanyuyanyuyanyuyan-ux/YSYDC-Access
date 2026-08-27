@@ -13,7 +13,9 @@
     "pages/business-login/business-login",
     "pages/business-register/business-register",
     "pages/business-home/business-home",
-    "pages/work-order-form/work-order-form"
+    "pages/work-order-form/work-order-form",
+    "pages/work-order-detail/work-order-detail",
+    "pages/visitor-reserve/visitor-reserve"
   ],
   "tabBar": {
     "color": "#999999",

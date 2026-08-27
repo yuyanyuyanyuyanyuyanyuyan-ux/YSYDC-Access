@@ -12,4 +12,8 @@
     <view class="exam-btn">进入 →</view>
   </view>
 
+  <view class="reserve-btn" bindtap="goReserve">快速预约</view>
+
+  <view class="status-tip">当前状态：{{status}}</view>
+
 </view>

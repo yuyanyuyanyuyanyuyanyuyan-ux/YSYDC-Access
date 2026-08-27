@@ -6,7 +6,7 @@
         <div class="flex items-center gap-10px">
           <el-input
             v-model="query.company"
-            placeholder="按公司搜索"
+            placeholder="按单位搜索"
             clearable
             class="w-200px"
             @keyup.enter="load"
@@ -22,11 +22,11 @@
       </div>
     </template>
     <el-table v-loading="loading" :data="list" stripe>
-      <el-table-column prop="company" label="访客公司" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="visit_time" label="访问时间" min-width="130" />
-      <el-table-column prop="visit_scale" label="访问规模" width="90" />
-      <el-table-column prop="contact_name" label="联络人" min-width="100" />
-      <el-table-column prop="lead_person" label="带领人" min-width="100" />
+      <el-table-column prop="company" label="来访单位" min-width="140" show-overflow-tooltip />
+      <el-table-column prop="entry_time" label="进入时间" min-width="130" />
+      <el-table-column prop="reason" label="进出原因" min-width="100" />
+      <el-table-column prop="area" label="活动区域" min-width="110" />
+      <el-table-column prop="accompanying_person" label="陪同人员" min-width="100" />
       <el-table-column label="审批状态" width="100">
         <template #default="{ row }">
           <el-tag :type="statusTagType(row.approval_status)">
