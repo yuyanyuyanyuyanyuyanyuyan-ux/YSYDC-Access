@@ -1,0 +1,16 @@
+<view class="page">
+
+  <view class="list">
+    <view wx:for="{{list}}" wx:key="id" class="item">
+      <view class="item-left">
+        <view class="item-title">第 {{index + 1}} 次考试</view>
+        <view class="item-score">成绩：{{item.score}} 分</view>
+      </view>
+      <view class="item-tag {{item.passed ? 'passed' : 'failed'}}">
+        {{item.passed ? '通过' : '未通过'}}
+      </view>
+    </view>
+    <view wx:if="{{!list.length}}" class="empty">暂无考试记录</view>
+  </view>
+
+</view>

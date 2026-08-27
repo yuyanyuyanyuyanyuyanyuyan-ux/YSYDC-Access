@@ -1,0 +1,15 @@
+<view class="page">
+
+  <view class="hero">
+    <view class="greeting" wx:if="{{visitor}}">你好，{{visitor.name || visitor.company}}</view>
+    <view class="hero-title">数据机房准入系统</view>
+    <view class="hero-desc">完成安全学习与在线考试，获取准入凭证</view>
+  </view>
+
+  <view class="exam-card" bindtap="startExam">
+    <view class="exam-title">开始考试</view>
+    <view class="exam-desc">安全学习 → 在线考试 → 生成准入凭证</view>
+    <view class="exam-btn">进入 →</view>
+  </view>
+
+</view>

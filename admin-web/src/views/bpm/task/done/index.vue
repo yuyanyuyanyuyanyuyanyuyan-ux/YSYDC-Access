@@ -4,10 +4,8 @@
       <span class="font-bold">已办任务</span>
     </template>
     <el-table v-loading="loading" :data="list" stripe>
-      <el-table-column prop="name" label="姓名" min-width="90" />
-      <el-table-column prop="phone" label="手机号" min-width="120" />
-      <el-table-column prop="company" label="公司/单位" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="score" label="考试成绩" width="90" />
+      <el-table-column prop="company" label="访客公司" min-width="140" show-overflow-tooltip />
+      <el-table-column prop="visit_time" label="访问时间" min-width="130" />
       <el-table-column prop="step_name" label="审批节点" min-width="130" />
       <el-table-column label="处理结果" width="100">
         <template #default="{ row }">

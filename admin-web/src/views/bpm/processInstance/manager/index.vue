@@ -5,8 +5,8 @@
         <span class="font-bold">工单列表</span>
         <div class="flex items-center gap-10px">
           <el-input
-            v-model="query.name"
-            placeholder="按姓名搜索"
+            v-model="query.company"
+            placeholder="按公司搜索"
             clearable
             class="w-200px"
             @keyup.enter="load"
@@ -22,12 +22,11 @@
       </div>
     </template>
     <el-table v-loading="loading" :data="list" stripe>
-      <el-table-column prop="name" label="姓名" min-width="90" />
-      <el-table-column prop="phone" label="手机号" min-width="120" />
-      <el-table-column prop="company" label="公司/单位" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="identity_type" label="身份类型" min-width="90" />
-      <el-table-column prop="visit_purpose" label="来访目的" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="score" label="考试成绩" width="90" />
+      <el-table-column prop="company" label="访客公司" min-width="140" show-overflow-tooltip />
+      <el-table-column prop="visit_time" label="访问时间" min-width="130" />
+      <el-table-column prop="visit_scale" label="访问规模" width="90" />
+      <el-table-column prop="contact_name" label="联络人" min-width="100" />
+      <el-table-column prop="lead_person" label="带领人" min-width="100" />
       <el-table-column label="审批状态" width="100">
         <template #default="{ row }">
           <el-tag :type="statusTagType(row.approval_status)">
@@ -54,14 +53,14 @@ defineOptions({ name: 'BpmWorkOrders' })
 const { push } = useRouter()
 const list = ref<any[]>([])
 const loading = ref(false)
-const query = reactive({ status: '', name: '' })
+const query = reactive({ status: '', company: '' })
 
 const statusText = (s: string) => {
   const m: Record<string, string> = { pending: '待审批', approved: '已通过', rejected: '已驳回' }
   return m[s] || s
 }
-const statusTagType = (s: string) => {
-  const m: Record<string, string> = { pending: 'warning', approved: 'success', rejected: 'danger' }
+const statusTagType = (s: string): 'success' | 'warning' | 'danger' | 'info' => {
+  const m: Record<string, 'success' | 'warning' | 'danger' | 'info'> = { pending: 'warning', approved: 'success', rejected: 'danger' }
   return m[s] || 'info'
 }
 
@@ -70,7 +69,7 @@ const load = async () => {
   try {
     const params: Record<string, any> = {}
     if (query.status) params.status = query.status
-    if (query.name) params.name = query.name
+    if (query.company) params.company = query.company
     const res = await request.get({ url: '/api/work-orders', params })
     list.value = res.list || []
   } catch (e) {

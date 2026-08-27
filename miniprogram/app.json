@@ -1,10 +1,42 @@
 {
   "pages": [
     "pages/index/index",
+    "pages/visitor-login/visitor-login",
     "pages/register/register",
     "pages/safety/safety",
-    "pages/exam/exam"
+    "pages/exam/exam",
+    "pages/credential/credential",
+    "pages/visitor-home/visitor-home",
+    "pages/visitor-exams/visitor-exams",
+    "pages/visitor-credentials/visitor-credentials",
+    "pages/visitor-account/visitor-account",
+    "pages/business-login/business-login",
+    "pages/business-register/business-register",
+    "pages/business-home/business-home",
+    "pages/work-order-form/work-order-form"
   ],
+  "tabBar": {
+    "color": "#999999",
+    "selectedColor": "#1677ff",
+    "list": [
+      {
+        "pagePath": "pages/visitor-home/visitor-home",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/visitor-exams/visitor-exams",
+        "text": "我的考试"
+      },
+      {
+        "pagePath": "pages/visitor-credentials/visitor-credentials",
+        "text": "历史凭证"
+      },
+      {
+        "pagePath": "pages/visitor-account/visitor-account",
+        "text": "我的账号"
+      }
+    ]
+  },
   "window": {
     "navigationBarTitleText": "数据机房准入系统",
     "navigationBarTextStyle": "black",

@@ -1,0 +1,27 @@
+.page {
+  padding: 40rpx;
+}
+.card {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 30rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+  font-size: 28rpx;
+}
+.label {
+  color: #999;
+}
+.empty {
+  text-align: center;
+  color: #999;
+  padding: 60rpx 0;
+}
+.btn {
+  margin-top: 50rpx;
+}

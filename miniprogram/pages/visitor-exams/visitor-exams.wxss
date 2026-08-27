@@ -1,0 +1,44 @@
+.page {
+  padding: 30rpx;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+.item {
+  background: #fff;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+}
+.item-title {
+  font-size: 30rpx;
+  font-weight: bold;
+}
+.item-score {
+  font-size: 26rpx;
+  color: #666;
+  margin-top: 6rpx;
+}
+.item-tag {
+  font-size: 26rpx;
+  padding: 6rpx 20rpx;
+  border-radius: 8rpx;
+}
+.item-tag.passed {
+  background: #ecfdf5;
+  color: #16a34a;
+}
+.item-tag.failed {
+  background: #fef2f2;
+  color: #dc2626;
+}
+.empty {
+  text-align: center;
+  color: #999;
+  padding: 100rpx 0;
+}

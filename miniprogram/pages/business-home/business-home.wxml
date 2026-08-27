@@ -1,0 +1,21 @@
+<view class="page">
+
+  <view class="header">
+    <view class="title">我的工单</view>
+    <view class="subtitle" wx:if="{{member}}">{{member.real_name || member.username}}</view>
+  </view>
+
+  <view class="list">
+    <view wx:for="{{list}}" wx:key="id" class="item">
+      <view class="item-company">{{item.company}}</view>
+      <view class="item-row">访问时间：{{item.visit_time}}</view>
+      <view class="item-row">联络人：{{item.contact_name}} {{item.contact_phone}}</view>
+      <view class="item-status {{item.status}}">{{statusText(item.status)}}</view>
+    </view>
+    <view wx:if="{{!list.length}}" class="empty">暂无工单</view>
+  </view>
+
+  <button class="btn primary" bindtap="goCreate">新建工单</button>
+  <button class="btn" bindtap="logout">退出登录</button>
+
+</view>

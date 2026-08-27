@@ -7,15 +7,18 @@ from auth import (
     AuthError,
     build_permission_info,
     create_access_token,
+    create_business_token,
+    get_admin_row,
     get_current_admin,
+    get_current_business_member,
     is_top_admin,
 )
 from config.database import get_connection
 
 app = FastAPI(
     title="数据中心机房准入系统",
-    description="用于处理人员登记、考试和审批",
-    version="0.2.0",
+    description="用于处理工单、人员登记、考试和审批",
+    version="0.3.0",
 )
 
 # 允许管理台前端跨域直连（开发环境放开所有来源）
@@ -51,17 +54,48 @@ def fail(msg="操作失败", code=1):
 # 请求数据模型
 # =========================
 
-class RegisterRequest(BaseModel):
+class VisitorRegister(BaseModel):
     name: str
     phone: str
+    password: str
     company: str
-    identity_type: str
-    visit_purpose: str
+
+
+class VisitorLogin(BaseModel):
+    phone: str
+    password: str
 
 
 class ExamSubmit(BaseModel):
     user_id: int
     answers: dict
+
+
+class BusinessRegister(BaseModel):
+    username: str
+    password: str
+    real_name: str = ""
+    phone: str = ""
+
+
+class BusinessLogin(BaseModel):
+    username: str
+    password: str
+
+
+class BusinessMemberUpdate(BaseModel):
+    real_name: str = ""
+    phone: str = ""
+    password: str = ""
+
+
+class WorkOrderCreate(BaseModel):
+    company: str
+    visit_time: str = ""
+    visit_scale: str = ""
+    contact_name: str = ""
+    contact_phone: str = ""
+    lead_person: str = ""
 
 
 class ApprovalAction(BaseModel):
@@ -117,6 +151,51 @@ def find_admin_by_role(cursor, role: str):
     return cursor.fetchone()
 
 
+def start_approval(cursor, work_order_id: int):
+    """为工单启动 BPM 审批：找开始节点 → 分配第一个审批任务。返回错误信息或 None。"""
+    cursor.execute("SELECT id, step_name, required_role FROM approval_steps ORDER BY id")
+    all_steps = cursor.fetchall()
+    if not all_steps:
+        return "当前没有配置审批节点"
+
+    cursor.execute("SELECT from_step_id, to_step_id FROM workflow_transitions")
+    transitions = cursor.fetchall()
+    if not transitions:
+        return "当前 BPM 工作流没有配置节点连线"
+
+    all_step_ids = {s["id"] for s in all_steps}
+    to_step_ids = {t["to_step_id"] for t in transitions}
+    start_step_ids = list(all_step_ids - to_step_ids)
+    if len(start_step_ids) != 1:
+        return f"当前 BPM 工作流必须只有一个开始节点，当前检测到 {len(start_step_ids)} 个"
+
+    start_step_id = start_step_ids[0]
+    cursor.execute(
+        "SELECT id, step_name, required_role FROM approval_steps WHERE id = %s",
+        (start_step_id,),
+    )
+    first_step = cursor.fetchone()
+    if not first_step:
+        return "无法找到 BPM 开始节点"
+
+    first_admin = find_admin_by_role(cursor, first_step["required_role"])
+    if not first_admin:
+        return f"找不到角色 {first_step['required_role']} 对应的审批管理员"
+
+    cursor.execute(
+        "INSERT INTO approval_records (work_order_id, status) VALUES (%s, 'pending')",
+        (work_order_id,),
+    )
+    approval_record_id = cursor.lastrowid
+
+    cursor.execute(
+        "INSERT INTO approval_tasks (approval_record_id, step_id, admin_id, status) "
+        "VALUES (%s, %s, %s, 'pending')",
+        (approval_record_id, first_step["id"], first_admin["id"]),
+    )
+    return None
+
+
 # =========================
 # 访客端接口（保持 {success} 结构，供小程序调用）
 # =========================
@@ -143,24 +222,32 @@ def test_database():
         connection.close()
 
 
-@app.post("/api/register")
-def register_user(user: RegisterRequest):
+@app.post("/api/visitor/register")
+def visitor_register(data: VisitorRegister):
+    """访客登记：按公司名匹配已审批通过的工单，命中则绑定。"""
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                """
-                INSERT INTO users (name, phone, company, identity_type, visit_purpose)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                (user.name, user.phone, user.company, user.identity_type, user.visit_purpose),
+                "SELECT id FROM work_orders WHERE company = %s AND status = 'approved' "
+                "ORDER BY id DESC LIMIT 1",
+                (data.company,),
+            )
+            wo = cursor.fetchone()
+            if not wo:
+                return {"success": False, "message": "未找到匹配的已审批工单，请联系业务部先提交工单"}
+
+            cursor.execute(
+                "INSERT INTO users (name, phone, password, company, identity_type, visit_purpose, work_order_id) "
+                "VALUES (%s, %s, %s, %s, '', '', %s)",
+                (data.name, data.phone, data.password, data.company, wo["id"]),
             )
             connection.commit()
             user_id = cursor.lastrowid
-        return {"success": True, "message": "用户登记成功", "user_id": user_id}
+        return {"success": True, "user_id": user_id, "work_order_id": wo["id"]}
     except Exception as e:
         connection.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"success": False, "message": str(e)}
     finally:
         connection.close()
 
@@ -188,6 +275,7 @@ def get_questions():
 
 @app.post("/api/submit-exam")
 def submit_exam(data: ExamSubmit):
+    """访客考试：判分；通过且已绑定工单时生成准入凭证。"""
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
@@ -200,10 +288,9 @@ def submit_exam(data: ExamSubmit):
             score = 0
             for question in questions:
                 qid = question["id"]
-                user_answer_index = data.answers.get(str(qid))
-                if user_answer_index is not None:
-                    if answer_map.get(user_answer_index) == question["correct_answer"]:
-                        score += 10
+                idx = data.answers.get(str(qid))
+                if idx is not None and answer_map.get(idx) == question["correct_answer"]:
+                    score += 10
 
             passed = score >= 70
 
@@ -214,81 +301,262 @@ def submit_exam(data: ExamSubmit):
             )
             exam_id = cursor.lastrowid
 
-            # 4. 考试通过 → 创建审批工单并进入 BPM 流程
+            # 4. 通过且绑定工单 → 生成准入凭证
+            credential = None
             if passed:
                 cursor.execute(
-                    "SELECT id, step_name, required_role FROM approval_steps ORDER BY id"
+                    "SELECT work_order_id FROM users WHERE id = %s",
+                    (data.user_id,),
                 )
-                all_steps = cursor.fetchall()
-                if not all_steps:
-                    connection.rollback()
-                    return {"success": False, "message": "当前没有配置审批节点"}
-
-                cursor.execute("SELECT from_step_id, to_step_id FROM workflow_transitions")
-                transitions = cursor.fetchall()
-                if not transitions:
-                    connection.rollback()
-                    return {"success": False, "message": "当前 BPM 工作流没有配置节点连线"}
-
-                all_step_ids = {s["id"] for s in all_steps}
-                to_step_ids = {t["to_step_id"] for t in transitions}
-                start_step_ids = list(all_step_ids - to_step_ids)
-
-                if len(start_step_ids) != 1:
-                    connection.rollback()
-                    return {
-                        "success": False,
-                        "message": (
-                            f"当前 BPM 工作流必须只有一个开始节点，"
-                            f"当前检测到 {len(start_step_ids)} 个开始节点"
-                        ),
-                    }
-
-                start_step_id = start_step_ids[0]
-                cursor.execute(
-                    "SELECT id, step_name, required_role FROM approval_steps WHERE id = %s",
-                    (start_step_id,),
-                )
-                first_step = cursor.fetchone()
-                if not first_step:
-                    connection.rollback()
-                    return {"success": False, "message": "无法找到 BPM 开始节点"}
-
-                # 负载均衡分配管理员
-                first_admin = find_admin_by_role(cursor, first_step["required_role"])
-                if not first_admin:
-                    connection.rollback()
-                    return {
-                        "success": False,
-                        "message": f"找不到角色 {first_step['required_role']} 对应的审批管理员",
-                    }
-
-                cursor.execute(
-                    "INSERT INTO approval_records (user_id, exam_record_id, status) "
-                    "VALUES (%s, %s, 'pending')",
-                    (data.user_id, exam_id),
-                )
-                approval_record_id = cursor.lastrowid
-
-                cursor.execute(
-                    """
-                    INSERT INTO approval_tasks (approval_record_id, step_id, admin_id, status)
-                    VALUES (%s, %s, %s, 'pending')
-                    """,
-                    (approval_record_id, first_step["id"], first_admin["id"]),
-                )
+                user_row = cursor.fetchone()
+                work_order_id = user_row.get("work_order_id") if user_row else None
+                if work_order_id:
+                    cursor.execute(
+                        "INSERT INTO credentials (user_id, work_order_id, exam_record_id) "
+                        "VALUES (%s, %s, %s)",
+                        (data.user_id, work_order_id, exam_id),
+                    )
+                    credential = {"work_order_id": work_order_id, "exam_record_id": exam_id}
 
             connection.commit()
+
+            if credential:
+                message = "考试通过，已生成准入凭证"
+            elif passed:
+                message = "考试通过"
+            else:
+                message = "考试未通过"
 
             return {
                 "success": True,
                 "score": score,
                 "passed": passed,
-                "message": "考试通过，已进入 BPM 审批流程" if passed else "考试未通过",
+                "credential": credential,
+                "message": message,
             }
     except Exception as e:
         connection.rollback()
         return {"success": False, "message": str(e)}
+    finally:
+        connection.close()
+
+
+@app.get("/api/credential/{user_id}")
+def get_credential(user_id: int):
+    """访客的准入凭证状态。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT c.id, c.created_at AS issued_at,
+                       u.name, u.phone, u.company,
+                       w.company AS work_order_company, w.visit_time, w.lead_person,
+                       e.score
+                FROM credentials c
+                JOIN users u ON c.user_id = u.id
+                JOIN work_orders w ON c.work_order_id = w.id
+                JOIN exam_records e ON c.exam_record_id = e.id
+                WHERE c.user_id = %s
+                ORDER BY c.id DESC LIMIT 1
+                """,
+                (user_id,),
+            )
+            credential = cursor.fetchone()
+        if not credential:
+            return {"success": False, "message": "暂无准入凭证"}
+        return {"success": True, "credential": credential}
+    finally:
+        connection.close()
+
+
+@app.post("/api/visitor/login")
+def visitor_login(data: VisitorLogin):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, name, phone, company, password, work_order_id FROM users WHERE phone = %s",
+                (data.phone,),
+            )
+            user = cursor.fetchone()
+        if not user:
+            return {"success": False, "message": "手机号未注册"}
+        if user["password"] != data.password:
+            return {"success": False, "message": "密码错误"}
+        return {
+            "success": True,
+            "user_id": user["id"],
+            "user": {
+                "id": user["id"],
+                "name": user["name"],
+                "phone": user["phone"],
+                "company": user["company"],
+                "work_order_id": user["work_order_id"],
+            },
+        }
+    finally:
+        connection.close()
+
+
+@app.get("/api/visitor/info/{user_id}")
+def visitor_info(user_id: int):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT u.id, u.name, u.phone, u.company, u.work_order_id, "
+                "w.company AS work_order_company, w.visit_time, w.lead_person, w.status AS work_order_status "
+                "FROM users u LEFT JOIN work_orders w ON u.work_order_id = w.id WHERE u.id = %s",
+                (user_id,),
+            )
+            info = cursor.fetchone()
+        if not info:
+            return {"success": False, "message": "用户不存在"}
+        return {"success": True, "info": info}
+    finally:
+        connection.close()
+
+
+@app.get("/api/visitor/exams/{user_id}")
+def visitor_exams(user_id: int):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, score, passed FROM exam_records WHERE user_id = %s ORDER BY id DESC",
+                (user_id,),
+            )
+            exams = cursor.fetchall()
+        return {"success": True, "list": exams}
+    finally:
+        connection.close()
+
+
+@app.get("/api/visitor/credentials/{user_id}")
+def visitor_credentials(user_id: int):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT c.id, c.created_at AS issued_at, w.company, w.visit_time, w.lead_person, e.score "
+                "FROM credentials c JOIN work_orders w ON c.work_order_id = w.id "
+                "JOIN exam_records e ON c.exam_record_id = e.id "
+                "WHERE c.user_id = %s ORDER BY c.id DESC",
+                (user_id,),
+            )
+            credentials = cursor.fetchall()
+        return {"success": True, "list": credentials}
+    finally:
+        connection.close()
+
+
+# =========================
+# 业务部成员接口（小程序）
+# =========================
+
+@app.post("/api/business/register")
+def business_register(data: BusinessRegister):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM business_members WHERE username = %s", (data.username,))
+            if cursor.fetchone():
+                return {"success": False, "message": "账号已存在"}
+            cursor.execute(
+                "INSERT INTO business_members (username, password, real_name, phone) "
+                "VALUES (%s, %s, %s, %s)",
+                (data.username, data.password, data.real_name, data.phone),
+            )
+            connection.commit()
+        return {"success": True, "message": "注册成功"}
+    except Exception as e:
+        connection.rollback()
+        return {"success": False, "message": str(e)}
+    finally:
+        connection.close()
+
+
+@app.post("/api/business/login")
+def business_login(data: BusinessLogin):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, username, password, real_name, phone FROM business_members WHERE username = %s",
+                (data.username,),
+            )
+            member = cursor.fetchone()
+        if not member:
+            return {"success": False, "message": "账号不存在"}
+        if member["password"] != data.password:
+            return {"success": False, "message": "密码错误"}
+        token = create_business_token(member["id"], member["username"])
+        return {
+            "success": True,
+            "token": token,
+            "member": {
+                "id": member["id"],
+                "username": member["username"],
+                "real_name": member["real_name"],
+                "phone": member["phone"],
+            },
+        }
+    finally:
+        connection.close()
+
+
+# =========================
+# 工单接口（业务部成员提交）
+# =========================
+
+@app.post("/api/work-orders")
+def create_work_order(data: WorkOrderCreate, member: dict = Depends(get_current_business_member)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO work_orders
+                (business_member_id, company, visit_time, visit_scale, contact_name, contact_phone, lead_person, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending')
+                """,
+                (member["id"], data.company, data.visit_time, data.visit_scale,
+                 data.contact_name, data.contact_phone, data.lead_person),
+            )
+            work_order_id = cursor.lastrowid
+
+            err = start_approval(cursor, work_order_id)
+            if err:
+                connection.rollback()
+                return {"success": False, "message": err}
+
+            connection.commit()
+        return {"success": True, "work_order_id": work_order_id, "message": "工单已提交，进入审批流程"}
+    except Exception as e:
+        connection.rollback()
+        return {"success": False, "message": str(e)}
+    finally:
+        connection.close()
+
+
+@app.get("/api/work-orders/mine")
+def get_my_work_orders(member: dict = Depends(get_current_business_member)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, company, visit_time, visit_scale, contact_name, contact_phone,
+                       lead_person, status, created_at
+                FROM work_orders
+                WHERE business_member_id = %s
+                ORDER BY id DESC
+                """,
+                (member["id"],),
+            )
+            rows = cursor.fetchall()
+        return {"success": True, "list": rows}
     finally:
         connection.close()
 
@@ -336,7 +604,7 @@ def logout(current_admin: dict = Depends(get_current_admin)):
 
 
 # =========================
-# 布局兼容接口（站内信铃铛等，管理台布局自动调用）
+# 布局兼容接口（站内信铃铛/个人中心等，管理台布局自动调用）
 # =========================
 
 @app.get("/system/notify-message/get-unread-count")
@@ -346,6 +614,36 @@ def get_unread_count(current_admin: dict = Depends(get_current_admin)):
 
 @app.get("/system/notify-message/get-unread-list")
 def get_unread_list(current_admin: dict = Depends(get_current_admin)):
+    return ok([])
+
+
+@app.get("/system/user/profile/get")
+def get_user_profile(current_admin: dict = Depends(get_current_admin)):
+    row = get_admin_row(current_admin["id"])
+    if not row:
+        return fail("管理员不存在", code=404)
+    profile = {
+        "id": row["id"],
+        "username": row["username"],
+        "nickname": row.get("real_name") or row["username"],
+        "dept": {"id": 0, "name": row.get("role") or ""},
+        "roles": [{"id": 0, "name": row.get("role") or ""}],
+        "posts": [],
+        "email": "",
+        "mobile": row.get("phone") or "",
+        "sex": 0,
+        "avatar": "",
+        "status": 0,
+        "remark": "",
+        "loginIp": "",
+        "loginDate": None,
+        "createTime": None,
+    }
+    return ok(profile)
+
+
+@app.get("/system/social-user/get-bind-list")
+def get_bind_social_user_list(current_admin: dict = Depends(get_current_admin)):
     return ok([])
 
 
@@ -365,14 +663,12 @@ def get_pending_tasks(current_admin: dict = Depends(get_current_admin)):
                     approval_records.id AS approval_record_id,
                     approval_tasks.status,
                     approval_tasks.created_at,
-                    users.name, users.phone, users.company,
-                    users.identity_type, users.visit_purpose,
-                    exam_records.score,
+                    work_orders.company, work_orders.visit_time, work_orders.visit_scale,
+                    work_orders.contact_name, work_orders.contact_phone, work_orders.lead_person,
                     approval_steps.step_name
                 FROM approval_tasks
                 JOIN approval_records ON approval_tasks.approval_record_id = approval_records.id
-                JOIN users ON approval_records.user_id = users.id
-                JOIN exam_records ON approval_records.exam_record_id = exam_records.id
+                JOIN work_orders ON approval_records.work_order_id = work_orders.id
                 JOIN approval_steps ON approval_tasks.step_id = approval_steps.id
                 WHERE approval_tasks.admin_id = %s AND approval_tasks.status = 'pending'
                 ORDER BY approval_tasks.created_at ASC
@@ -399,13 +695,12 @@ def get_completed_tasks(current_admin: dict = Depends(get_current_admin)):
                     approval_tasks.comment,
                     approval_tasks.approved_at,
                     approval_tasks.created_at,
-                    users.name, users.phone, users.company,
-                    users.identity_type, users.visit_purpose,
-                    exam_records.score, approval_steps.step_name
+                    work_orders.company, work_orders.visit_time, work_orders.visit_scale,
+                    work_orders.contact_name, work_orders.contact_phone, work_orders.lead_person,
+                    approval_steps.step_name
                 FROM approval_tasks
                 JOIN approval_records ON approval_tasks.approval_record_id = approval_records.id
-                JOIN users ON approval_records.user_id = users.id
-                JOIN exam_records ON approval_records.exam_record_id = exam_records.id
+                JOIN work_orders ON approval_records.work_order_id = work_orders.id
                 JOIN approval_steps ON approval_tasks.step_id = approval_steps.id
                 WHERE approval_tasks.admin_id = %s
                 AND approval_tasks.status IN ('approved', 'rejected')
@@ -442,7 +737,7 @@ def handle_approval(
             if not task:
                 return fail("审批任务不存在")
 
-            # 2. 权限检查（只能审批分配给自己的任务）
+            # 2. 权限检查
             if task["admin_id"] != current_admin["id"]:
                 return fail("无权审批该任务", code=403)
 
@@ -460,8 +755,7 @@ def handle_approval(
 
             # 6. 更新当前审批任务
             cursor.execute(
-                "UPDATE approval_tasks SET status = %s, comment = %s, approved_at = NOW() "
-                "WHERE id = %s",
+                "UPDATE approval_tasks SET status = %s, comment = %s, approved_at = NOW() WHERE id = %s",
                 (data.action, data.comment, task_id),
             )
 
@@ -472,20 +766,19 @@ def handle_approval(
                 (approval_record_id, task_id, step_id, admin_id, action, comment)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (
-                    task["approval_record_id"],
-                    task_id,
-                    task["step_id"],
-                    current_admin["id"],
-                    data.action,
-                    data.comment,
-                ),
+                (task["approval_record_id"], task_id, task["step_id"],
+                 current_admin["id"], data.action, data.comment),
             )
 
             # 8. 如果拒绝，整个流程结束
             if data.action == "rejected":
                 cursor.execute(
                     "UPDATE approval_records SET status = 'rejected' WHERE id = %s",
+                    (task["approval_record_id"],),
+                )
+                cursor.execute(
+                    "UPDATE work_orders SET status = 'rejected' "
+                    "WHERE id = (SELECT work_order_id FROM approval_records WHERE id = %s)",
                     (task["approval_record_id"],),
                 )
                 connection.commit()
@@ -504,17 +797,19 @@ def handle_approval(
                     "UPDATE approval_records SET status = 'approved' WHERE id = %s",
                     (task["approval_record_id"],),
                 )
+                cursor.execute(
+                    "UPDATE work_orders SET status = 'approved' "
+                    "WHERE id = (SELECT work_order_id FROM approval_records WHERE id = %s)",
+                    (task["approval_record_id"],),
+                )
                 connection.commit()
                 return ok({"status": "approved"}, "审批全部完成，流程结束")
 
-            # 当前版本只支持一个下一节点
             if len(next_transitions) > 1:
                 connection.rollback()
                 return fail("当前 BPM 节点配置了多个下一节点，当前版本暂不支持并行或条件分支审批")
 
             next_step_id = next_transitions[0]["to_step_id"]
-
-            # 查询下一节点
             cursor.execute(
                 "SELECT id, step_name, required_role FROM approval_steps WHERE id = %s",
                 (next_step_id,),
@@ -524,13 +819,11 @@ def handle_approval(
                 connection.rollback()
                 return fail("下一审批节点不存在")
 
-            # 负载均衡分配下一审批管理员
             next_admin = find_admin_by_role(cursor, next_step["required_role"])
             if not next_admin:
                 connection.rollback()
                 return fail(f"找不到角色 {next_step['required_role']} 对应的审批管理员")
 
-            # 防止重复创建任务
             cursor.execute(
                 """
                 SELECT id FROM approval_tasks
@@ -543,7 +836,6 @@ def handle_approval(
                 connection.rollback()
                 return fail("下一审批任务已经存在")
 
-            # 创建下一审批任务
             cursor.execute(
                 """
                 INSERT INTO approval_tasks (approval_record_id, step_id, admin_id, status)
@@ -552,7 +844,6 @@ def handle_approval(
                 (task["approval_record_id"], next_step_id, next_admin["id"]),
             )
 
-            # 确保总流程仍是 pending
             cursor.execute(
                 "UPDATE approval_records SET status = 'pending' WHERE id = %s",
                 (task["approval_record_id"],),
@@ -577,16 +868,16 @@ def handle_approval(
 
 
 # =========================
-# 管理端：工单列表 / 详情 / 历史 / 流程图
+# 管理端：工单列表 / 详情 / 流程图
 # =========================
 
 @app.get("/api/work-orders")
 def get_work_orders(
     status: str | None = Query(default=None),
-    name: str | None = Query(default=None),
+    company: str | None = Query(default=None),
     current_admin: dict = Depends(get_current_admin),
 ):
-    """工单列表（全部审批工单）。仅顶层管理员可见。"""
+    """工单列表（全部工单）。仅顶层管理员可见。"""
     if not is_top_admin(current_admin["id"]):
         return fail("无权查看全部工单", code=403)
 
@@ -595,31 +886,31 @@ def get_work_orders(
         conditions = []
         params = []
         if status:
-            conditions.append("ar.status = %s")
+            conditions.append("work_orders.status = %s")
             params.append(status)
-        if name:
-            conditions.append("u.name LIKE %s")
-            params.append(f"%{name}%")
+        if company:
+            conditions.append("work_orders.company LIKE %s")
+            params.append(f"%{company}%")
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
                 SELECT
-                    ar.id AS approval_record_id,
-                    ar.status AS approval_status,
-                    ar.created_at AS application_time,
-                    u.name, u.phone, u.company, u.identity_type, u.visit_purpose,
-                    er.score,
+                    work_orders.id AS work_order_id,
+                    approval_records.id AS approval_record_id,
+                    work_orders.company, work_orders.visit_time, work_orders.visit_scale,
+                    work_orders.contact_name, work_orders.contact_phone, work_orders.lead_person,
+                    work_orders.status AS approval_status,
+                    work_orders.created_at AS application_time,
                     (SELECT s.step_name FROM approval_tasks t
                      JOIN approval_steps s ON t.step_id = s.id
-                     WHERE t.approval_record_id = ar.id AND t.status = 'pending'
+                     WHERE t.approval_record_id = approval_records.id AND t.status = 'pending'
                      LIMIT 1) AS current_step_name
-                FROM approval_records ar
-                JOIN users u ON ar.user_id = u.id
-                JOIN exam_records er ON ar.exam_record_id = er.id
+                FROM work_orders
+                LEFT JOIN approval_records ON approval_records.work_order_id = work_orders.id
                 {where}
-                ORDER BY ar.created_at DESC
+                ORDER BY work_orders.created_at DESC
                 """,
                 params,
             )
@@ -630,24 +921,20 @@ def get_work_orders(
 
 
 @app.get("/api/approval-detail/{record_id}")
-def get_approval_detail(
-    record_id: int,
-    current_admin: dict = Depends(get_current_admin),
-):
+def get_approval_detail(record_id: int, current_admin: dict = Depends(get_current_admin)):
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
-            # 1. 基本信息（人员 + 考试 + 审批状态）
+            # 1. 基本信息（工单 + 审批状态）
             cursor.execute(
                 """
                 SELECT
-                    users.name, users.phone, users.company, users.identity_type, users.visit_purpose,
-                    exam_records.score, exam_records.submitted_at AS exam_submitted_at,
+                    work_orders.company, work_orders.visit_time, work_orders.visit_scale,
+                    work_orders.contact_name, work_orders.contact_phone, work_orders.lead_person,
                     approval_records.status AS approval_status,
                     approval_records.created_at AS application_time
                 FROM approval_records
-                JOIN users ON approval_records.user_id = users.id
-                JOIN exam_records ON approval_records.exam_record_id = exam_records.id
+                JOIN work_orders ON approval_records.work_order_id = work_orders.id
                 WHERE approval_records.id = %s
                 """,
                 (record_id,),
@@ -661,11 +948,10 @@ def get_approval_detail(
                 "SELECT id FROM approval_tasks WHERE approval_record_id = %s AND status = 'pending' LIMIT 1",
                 (record_id,),
             )
-            pending_task = cursor.fetchone()
-            if pending_task:
+            if cursor.fetchone():
                 detail["approval_status"] = "pending"
 
-            # 3. 当前待办任务（若流程未完成）
+            # 3. 当前待办任务
             cursor.execute(
                 """
                 SELECT approval_tasks.id AS task_id,
@@ -674,8 +960,7 @@ def get_approval_detail(
                 FROM approval_tasks
                 JOIN approval_steps ON approval_tasks.step_id = approval_steps.id
                 JOIN admin_users ON approval_tasks.admin_id = admin_users.id
-                WHERE approval_tasks.approval_record_id = %s
-                AND approval_tasks.status = 'pending'
+                WHERE approval_tasks.approval_record_id = %s AND approval_tasks.status = 'pending'
                 LIMIT 1
                 """,
                 (record_id,),
@@ -699,9 +984,7 @@ def get_approval_detail(
             )
             history = cursor.fetchall()
 
-            return ok(
-                {"detail": detail, "current_task": current_task, "history": history}
-            )
+            return ok({"detail": detail, "current_task": current_task, "history": history})
     except Exception as e:
         return fail(str(e), code=500)
     finally:
@@ -709,10 +992,7 @@ def get_approval_detail(
 
 
 @app.get("/api/work-orders/{record_id}/flow")
-def get_work_order_flow(
-    record_id: int,
-    current_admin: dict = Depends(get_current_admin),
-):
+def get_work_order_flow(record_id: int, current_admin: dict = Depends(get_current_admin)):
     """审批流程图数据：节点、连线、当前节点、已完成节点。"""
     connection = get_connection()
     try:
@@ -735,8 +1015,7 @@ def get_work_order_flow(
             completed_step_ids = {row["step_id"] for row in cursor.fetchall()}
 
             cursor.execute(
-                "SELECT step_id FROM approval_tasks "
-                "WHERE approval_record_id = %s AND status = 'pending' LIMIT 1",
+                "SELECT step_id FROM approval_tasks WHERE approval_record_id = %s AND status = 'pending' LIMIT 1",
                 (record_id,),
             )
             current = cursor.fetchone()
@@ -751,13 +1030,85 @@ def get_work_order_flow(
             else:
                 node["flow_status"] = "pending"
 
-        return ok(
-            {
-                "nodes": nodes,
-                "transitions": transitions,
-                "current_step_id": current_step_id,
-            }
-        )
+        return ok({"nodes": nodes, "transitions": transitions, "current_step_id": current_step_id})
+    finally:
+        connection.close()
+
+
+# =========================
+# 管理端：业务部成员管理
+# =========================
+
+@app.get("/api/business-members")
+def list_business_members(current_admin: dict = Depends(get_current_admin)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, username, real_name, phone, created_at FROM business_members ORDER BY id ASC"
+            )
+            rows = cursor.fetchall()
+        return ok({"list": rows, "total": len(rows)})
+    finally:
+        connection.close()
+
+
+@app.post("/api/business-members")
+def create_business_member(data: BusinessRegister, current_admin: dict = Depends(get_current_admin)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM business_members WHERE username = %s", (data.username,))
+            if cursor.fetchone():
+                return fail("账号已存在")
+            cursor.execute(
+                "INSERT INTO business_members (username, password, real_name, phone) VALUES (%s, %s, %s, %s)",
+                (data.username, data.password, data.real_name, data.phone),
+            )
+            connection.commit()
+            return ok({"id": cursor.lastrowid}, "创建成功")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.put("/api/business-members/{member_id}")
+def update_business_member(member_id: int, data: BusinessMemberUpdate, current_admin: dict = Depends(get_current_admin)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            if data.password:
+                cursor.execute(
+                    "UPDATE business_members SET real_name = %s, phone = %s, password = %s WHERE id = %s",
+                    (data.real_name, data.phone, data.password, member_id),
+                )
+            else:
+                cursor.execute(
+                    "UPDATE business_members SET real_name = %s, phone = %s WHERE id = %s",
+                    (data.real_name, data.phone, member_id),
+                )
+            connection.commit()
+        return ok(None, "更新成功")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.delete("/api/business-members/{member_id}")
+def delete_business_member(member_id: int, current_admin: dict = Depends(get_current_admin)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM business_members WHERE id = %s", (member_id,))
+            connection.commit()
+        return ok(None, "删除成功")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
     finally:
         connection.close()
 
@@ -772,11 +1123,8 @@ def get_workflow_nodes(current_admin: dict = Depends(get_current_admin)):
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                """
-                SELECT id, step_name, step_order, required_role, node_x, node_y
-                FROM approval_steps
-                ORDER BY step_order ASC
-                """
+                "SELECT id, step_name, step_order, required_role, node_x, node_y "
+                "FROM approval_steps ORDER BY step_order ASC"
             )
             nodes = cursor.fetchall()
         return ok({"list": nodes})
@@ -787,11 +1135,7 @@ def get_workflow_nodes(current_admin: dict = Depends(get_current_admin)):
 
 
 @app.put("/api/workflow/nodes/{node_id}/position")
-def update_workflow_node_position(
-    node_id: int,
-    data: WorkflowNodePosition,
-    current_admin: dict = Depends(get_current_admin),
-):
+def update_workflow_node_position(node_id: int, data: WorkflowNodePosition, current_admin: dict = Depends(get_current_admin)):
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
@@ -802,7 +1146,7 @@ def update_workflow_node_position(
             if cursor.rowcount == 0:
                 return fail("审批节点不存在")
         connection.commit()
-        return ok({"node_id": node_id, "node_x": data.node_x, "node_y": data.node_y}, "节点位置更新成功")
+        return ok({"node_id": node_id}, "节点位置更新成功")
     except Exception as e:
         connection.rollback()
         return fail(str(e), code=500)
@@ -811,10 +1155,7 @@ def update_workflow_node_position(
 
 
 @app.put("/api/workflow/nodes/positions")
-def update_workflow_node_positions(
-    data: WorkflowNodeBatchUpdate,
-    current_admin: dict = Depends(get_current_admin),
-):
+def update_workflow_node_positions(data: WorkflowNodeBatchUpdate, current_admin: dict = Depends(get_current_admin)):
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
@@ -860,10 +1201,7 @@ def get_workflow_transitions(current_admin: dict = Depends(get_current_admin)):
 
 
 @app.post("/api/workflow/transitions")
-def create_transition(
-    data: TransitionCreate,
-    current_admin: dict = Depends(get_current_admin),
-):
+def create_transition(data: TransitionCreate, current_admin: dict = Depends(get_current_admin)):
     connection = get_connection()
     try:
         if data.from_step_id == data.to_step_id:
@@ -873,32 +1211,27 @@ def create_transition(
             cursor.execute("SELECT id FROM approval_steps WHERE id = %s", (data.from_step_id,))
             if not cursor.fetchone():
                 return fail("起始节点不存在")
-
             cursor.execute("SELECT id FROM approval_steps WHERE id = %s", (data.to_step_id,))
             if not cursor.fetchone():
                 return fail("目标节点不存在")
-
             cursor.execute(
                 "SELECT id FROM workflow_transitions WHERE from_step_id = %s AND to_step_id = %s",
                 (data.from_step_id, data.to_step_id),
             )
             if cursor.fetchone():
                 return fail("该连线已经存在")
-
             cursor.execute(
                 "SELECT id FROM workflow_transitions WHERE from_step_id = %s LIMIT 1",
                 (data.from_step_id,),
             )
             if cursor.fetchone():
                 return fail("该节点已经配置下一节点，请先删除旧连线")
-
             cursor.execute(
                 "SELECT id FROM workflow_transitions WHERE from_step_id = %s AND to_step_id = %s LIMIT 1",
                 (data.to_step_id, data.from_step_id),
             )
             if cursor.fetchone():
                 return fail("不能形成循环审批流程")
-
             cursor.execute(
                 "INSERT INTO workflow_transitions (from_step_id, to_step_id) VALUES (%s, %s)",
                 (data.from_step_id, data.to_step_id),
@@ -915,10 +1248,7 @@ def create_transition(
 
 
 @app.delete("/api/workflow/transitions/{transition_id}")
-def delete_transition(
-    transition_id: int,
-    current_admin: dict = Depends(get_current_admin),
-):
+def delete_transition(transition_id: int, current_admin: dict = Depends(get_current_admin)):
     connection = get_connection()
     try:
         with connection.cursor() as cursor:

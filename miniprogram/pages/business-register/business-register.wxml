@@ -1,0 +1,15 @@
+<view class="page">
+
+  <view class="header">
+    <view class="title">业务部成员注册</view>
+  </view>
+
+  <view class="form">
+    <input class="input" placeholder="账号" value="{{username}}" data-field="username" bindinput="input" />
+    <input class="input" placeholder="密码" password value="{{password}}" data-field="password" bindinput="input" />
+    <input class="input" placeholder="姓名" value="{{real_name}}" data-field="real_name" bindinput="input" />
+    <input class="input" placeholder="手机号" type="number" maxlength="11" value="{{phone}}" data-field="phone" bindinput="input" />
+    <button class="btn primary" bindtap="register">注册</button>
+  </view>
+
+</view>

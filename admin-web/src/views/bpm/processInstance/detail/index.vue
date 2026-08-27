@@ -1,17 +1,17 @@
 <template>
   <div>
-    <!-- 访客信息 -->
+    <!-- 工单信息 -->
     <el-card shadow="never" class="mb-20px">
       <template #header>
-        <span class="font-bold">访客信息</span>
+        <span class="font-bold">工单信息</span>
       </template>
       <el-descriptions :column="3" border>
-        <el-descriptions-item label="姓名">{{ detail.name }}</el-descriptions-item>
-        <el-descriptions-item label="手机号">{{ detail.phone }}</el-descriptions-item>
-        <el-descriptions-item label="公司/单位">{{ detail.company }}</el-descriptions-item>
-        <el-descriptions-item label="身份类型">{{ detail.identity_type }}</el-descriptions-item>
-        <el-descriptions-item label="来访目的">{{ detail.visit_purpose }}</el-descriptions-item>
-        <el-descriptions-item label="考试成绩">{{ detail.score }}</el-descriptions-item>
+        <el-descriptions-item label="访客公司">{{ detail.company }}</el-descriptions-item>
+        <el-descriptions-item label="访问时间">{{ detail.visit_time }}</el-descriptions-item>
+        <el-descriptions-item label="访问规模">{{ detail.visit_scale }}</el-descriptions-item>
+        <el-descriptions-item label="联络人">{{ detail.contact_name }}</el-descriptions-item>
+        <el-descriptions-item label="联络电话">{{ detail.contact_phone }}</el-descriptions-item>
+        <el-descriptions-item label="带领人">{{ detail.lead_person }}</el-descriptions-item>
         <el-descriptions-item label="审批状态">
           <el-tag :type="statusTagType">{{ statusText }}</el-tag>
         </el-descriptions-item>
@@ -91,8 +91,8 @@ const statusText = computed(() => {
   const m: Record<string, string> = { pending: '待审批', approved: '已通过', rejected: '已驳回' }
   return m[detail.value.approval_status] || detail.value.approval_status || ''
 })
-const statusTagType = computed(() => {
-  const m: Record<string, string> = { pending: 'warning', approved: 'success', rejected: 'danger' }
+const statusTagType = computed<'success' | 'warning' | 'danger' | 'info'>(() => {
+  const m: Record<string, 'success' | 'warning' | 'danger' | 'info'> = { pending: 'warning', approved: 'success', rejected: 'danger' }
   return m[detail.value.approval_status] || 'info'
 })
 

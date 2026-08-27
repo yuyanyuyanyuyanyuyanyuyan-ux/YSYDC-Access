@@ -1,0 +1,41 @@
+<view class="page">
+
+  <view class="header">
+    <view class="title">填写工单</view>
+  </view>
+
+  <view class="form">
+    <view class="field">
+      <view class="label">访客公司名称<text class="required">*</text></view>
+      <input class="input" placeholder="请输入访客公司名称" value="{{company}}" data-field="company" bindinput="input" />
+    </view>
+
+    <view class="field">
+      <view class="label">访问时间</view>
+      <input class="input" placeholder="例如：2026-08-27 14:00" value="{{visit_time}}" data-field="visit_time" bindinput="input" />
+    </view>
+
+    <view class="field">
+      <view class="label">访问规模</view>
+      <input class="input" placeholder="例如：5人" value="{{visit_scale}}" data-field="visit_scale" bindinput="input" />
+    </view>
+
+    <view class="field">
+      <view class="label">访问方联络人姓名</view>
+      <input class="input" placeholder="请输入联络人姓名" value="{{contact_name}}" data-field="contact_name" bindinput="input" />
+    </view>
+
+    <view class="field">
+      <view class="label">访问方联络人电话</view>
+      <input class="input" placeholder="请输入联络人电话" type="number" maxlength="11" value="{{contact_phone}}" data-field="contact_phone" bindinput="input" />
+    </view>
+
+    <view class="field">
+      <view class="label">数据中心带领人</view>
+      <input class="input" placeholder="请输入数据中心带领人" value="{{lead_person}}" data-field="lead_person" bindinput="input" />
+    </view>
+  </view>
+
+  <button class="btn primary" bindtap="submit">提交工单</button>
+
+</view>

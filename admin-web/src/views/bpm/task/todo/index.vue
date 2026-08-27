@@ -4,12 +4,11 @@
       <span class="font-bold">待办任务</span>
     </template>
     <el-table v-loading="loading" :data="list" stripe>
-      <el-table-column prop="name" label="姓名" min-width="90" />
-      <el-table-column prop="phone" label="手机号" min-width="120" />
-      <el-table-column prop="company" label="公司/单位" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="identity_type" label="身份类型" min-width="90" />
-      <el-table-column prop="visit_purpose" label="来访目的" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="score" label="考试成绩" width="90" />
+      <el-table-column prop="company" label="访客公司" min-width="140" show-overflow-tooltip />
+      <el-table-column prop="visit_time" label="访问时间" min-width="130" />
+      <el-table-column prop="visit_scale" label="访问规模" width="90" />
+      <el-table-column prop="contact_name" label="联络人" min-width="100" />
+      <el-table-column prop="lead_person" label="带领人" min-width="100" />
       <el-table-column prop="step_name" label="当前审批节点" min-width="130" />
       <el-table-column prop="created_at" label="提交时间" min-width="160" />
       <el-table-column label="操作" width="160" fixed="right">

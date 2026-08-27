@@ -686,7 +686,7 @@ confirmSubmit() {
             title: '考试通过',
 
             content:
-              `您的考试成绩为 ${score} 分，已提交管理员审批。`,
+              `您的考试成绩为 ${score} 分，已生成准入凭证。`,
 
             showCancel: false,
 
@@ -695,7 +695,7 @@ confirmSubmit() {
 
               wx.redirectTo({
 
-                url: '/pages/index/index'
+                url: '/pages/credential/credential'
 
               })
 

@@ -1,6 +1,7 @@
-"""鉴权与权限：令牌签发/校验、当前管理员依赖、角色权限与菜单。
+"""鉴权与权限：令牌签发/校验、当前用户依赖、角色权限与菜单。
 
 令牌采用 HMAC-SHA256 签名的 JWT 结构（仅用标准库实现，零额外依赖）。
+用户类型 user_type：admin（管理员）/ business（业务部成员）。
 """
 import base64
 import hashlib
@@ -38,16 +39,17 @@ def _sign(message: str) -> str:
     return _b64url(hmac.new(SECRET_KEY, message.encode(), hashlib.sha256).digest())
 
 
-def create_access_token(admin_id: int, username: str, role: str) -> str:
+def _create_token(sub: str, username: str, role: str, user_type: str) -> str:
     header = _b64url(
         json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode()
     )
     payload = _b64url(
         json.dumps(
             {
-                "sub": str(admin_id),
+                "sub": sub,
                 "username": username,
                 "role": role,
+                "user_type": user_type,
                 "exp": int(time.time()) + TOKEN_EXPIRE_SECONDS,
             },
             separators=(",", ":"),
@@ -55,6 +57,16 @@ def create_access_token(admin_id: int, username: str, role: str) -> str:
     )
     signature = _sign(f"{header}.{payload}")
     return f"{header}.{payload}.{signature}"
+
+
+def create_access_token(admin_id: int, username: str, role: str) -> str:
+    """管理员令牌。"""
+    return _create_token(str(admin_id), username, role, "admin")
+
+
+def create_business_token(member_id: int, username: str) -> str:
+    """业务部成员令牌。"""
+    return _create_token(str(member_id), username, "", "business")
 
 
 def decode_access_token(token: str) -> dict:
@@ -71,17 +83,31 @@ def decode_access_token(token: str) -> dict:
     return data
 
 
-def get_current_admin(request: Request) -> dict:
-    """FastAPI 依赖：从 Authorization: Bearer <token> 解析当前管理员。"""
+def _decode_request(request: Request) -> dict:
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise AuthError(401, "未登录")
-    data = decode_access_token(auth[7:])
+    return decode_access_token(auth[7:])
+
+
+def get_current_admin(request: Request) -> dict:
+    """FastAPI 依赖：解析当前管理员（user_type=admin）。"""
+    data = _decode_request(request)
+    if data.get("user_type") != "admin":
+        raise AuthError(401, "无效的管理员凭证")
     return {
         "id": int(data["sub"]),
         "username": data.get("username"),
         "role": data.get("role"),
     }
+
+
+def get_current_business_member(request: Request) -> dict:
+    """FastAPI 依赖：解析当前业务部成员（user_type=business）。"""
+    data = _decode_request(request)
+    if data.get("user_type") != "business":
+        raise AuthError(401, "无效的业务部成员凭证")
+    return {"id": int(data["sub"]), "username": data.get("username")}
 
 
 def get_admin_row(admin_id: int):
@@ -92,6 +118,19 @@ def get_admin_row(admin_id: int):
                 "SELECT id, username, real_name, phone, role, parent_admin_id "
                 "FROM admin_users WHERE id = %s",
                 (admin_id,),
+            )
+            return cursor.fetchone()
+    finally:
+        connection.close()
+
+
+def get_business_row(member_id: int):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, username, real_name, phone FROM business_members WHERE id = %s",
+                (member_id,),
             )
             return cursor.fetchone()
     finally:
@@ -162,6 +201,24 @@ def build_menus(top: bool) -> list:
                 "keepAlive": True,
                 "alwaysShow": False,
             },
+        )
+        children.append(
+            {
+                "id": 14,
+                "name": "业务部成员管理",
+                "permission": "business-member:manage",
+                "type": 2,
+                "sort": 4,
+                "parentId": 1,
+                "path": "business-members",
+                "icon": "ep:user",
+                "component": "business/member/index",
+                "componentName": "BusinessMember",
+                "status": 0,
+                "visible": True,
+                "keepAlive": True,
+                "alwaysShow": False,
+            }
         )
     return [
         {

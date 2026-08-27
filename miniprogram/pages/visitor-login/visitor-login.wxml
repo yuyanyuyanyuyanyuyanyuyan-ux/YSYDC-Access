@@ -1,0 +1,14 @@
+<view class="page">
+
+  <view class="header">
+    <view class="title">访客登录</view>
+  </view>
+
+  <view class="form">
+    <input class="input" placeholder="手机号" type="number" maxlength="11" value="{{phone}}" bindinput="inputPhone" />
+    <input class="input" placeholder="密码" password value="{{password}}" bindinput="inputPassword" />
+    <button class="btn primary" bindtap="login">登录</button>
+    <view class="link" bindtap="goRegister">还没有账号？去注册</view>
+  </view>
+
+</view>
