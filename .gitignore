@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Node（前端管理台 admin-web）
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# 其它
+.history/

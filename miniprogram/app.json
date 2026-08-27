@@ -3,10 +3,7 @@
     "pages/index/index",
     "pages/register/register",
     "pages/safety/safety",
-    "pages/exam/exam",
-    "pages/admin-login/admin-login",
-    "pages/admin-tasks/admin-tasks",
-    "pages/admin-detail/admin-detail"
+    "pages/exam/exam"
   ],
   "window": {
     "navigationBarTitleText": "数据机房准入系统",
