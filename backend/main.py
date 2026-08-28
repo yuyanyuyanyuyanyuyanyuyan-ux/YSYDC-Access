@@ -117,6 +117,17 @@ class ReservationCreate(BaseModel):
     accompanying_person: str = ""
 
 
+class QuestionCreate(BaseModel):
+    question: str
+    option_a: str = ""
+    option_b: str = ""
+    option_c: str = ""
+    option_d: str = ""
+    score: int = 10
+    correct_answer: str = "A"
+    is_active: bool = True
+
+
 class ApprovalAction(BaseModel):
     action: str
     comment: str = ""
@@ -824,6 +835,27 @@ def get_my_reservations(visitor_id: int = Query(...)):
         connection.close()
 
 
+@app.get("/api/reservations")
+def list_reservations(current_admin: dict = Depends(get_current_admin)):
+    """管理端预约列表。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT r.id, r.visitor_id, r.company, r.visitors, r.entry_time, r.exit_time, r.reason, r.area, "
+                "r.contact_name, r.contact_phone, r.accompanying_person, r.status, r.created_at, "
+                "ar.id AS approval_record_id "
+                "FROM reservations r LEFT JOIN approval_records ar ON ar.reservation_id = r.id "
+                "ORDER BY r.id DESC"
+            )
+            rows = cursor.fetchall()
+        for row in rows:
+            row["visitors"] = json.loads(row["visitors"]) if row.get("visitors") else []
+        return ok({"list": rows, "total": len(rows)})
+    finally:
+        connection.close()
+
+
 # =========================
 # 管理端鉴权接口
 # =========================
@@ -1284,16 +1316,32 @@ def get_work_order_flow(record_id: int, current_admin: dict = Depends(get_curren
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
+            # 判断是工单审批还是预约审批
             cursor.execute(
-                "SELECT id, step_name, step_order, required_role, node_x, node_y "
-                "FROM approval_steps ORDER BY step_order ASC"
+                "SELECT work_order_id, reservation_id FROM approval_records WHERE id = %s",
+                (record_id,),
             )
-            nodes = cursor.fetchall()
+            ar = cursor.fetchone()
+            is_reservation = bool(ar and ar.get("reservation_id") and not ar.get("work_order_id"))
 
-            cursor.execute(
-                "SELECT id, from_step_id, to_step_id FROM workflow_transitions ORDER BY id ASC"
-            )
-            transitions = cursor.fetchall()
+            if is_reservation:
+                # 预约：单级审批，只显示部门主管节点
+                cursor.execute(
+                    "SELECT id, step_name, step_order, required_role, node_x, node_y "
+                    "FROM approval_steps WHERE required_role = '部门主管' ORDER BY step_order ASC"
+                )
+                nodes = cursor.fetchall()
+                transitions = []
+            else:
+                cursor.execute(
+                    "SELECT id, step_name, step_order, required_role, node_x, node_y "
+                    "FROM approval_steps ORDER BY step_order ASC"
+                )
+                nodes = cursor.fetchall()
+                cursor.execute(
+                    "SELECT id, from_step_id, to_step_id FROM workflow_transitions ORDER BY id ASC"
+                )
+                transitions = cursor.fetchall()
 
             cursor.execute(
                 "SELECT DISTINCT step_id FROM approval_history WHERE approval_record_id = %s",
@@ -1391,6 +1439,80 @@ def delete_business_member(member_id: int, current_admin: dict = Depends(get_cur
     try:
         with connection.cursor() as cursor:
             cursor.execute("DELETE FROM business_members WHERE id = %s", (member_id,))
+            connection.commit()
+        return ok(None, "删除成功")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+# =========================
+# 管理端：题库管理
+# =========================
+
+@app.get("/api/admin/questions")
+def list_questions(current_admin: dict = Depends(get_current_admin)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, question, option_a, option_b, option_c, option_d, score, correct_answer, is_active "
+                "FROM questions ORDER BY id ASC"
+            )
+            rows = cursor.fetchall()
+        return ok({"list": rows, "total": len(rows)})
+    finally:
+        connection.close()
+
+
+@app.post("/api/admin/questions")
+def create_question(data: QuestionCreate, current_admin: dict = Depends(get_current_admin)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO questions (question, option_a, option_b, option_c, option_d, score, correct_answer, is_active) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (data.question, data.option_a, data.option_b, data.option_c, data.option_d,
+                 data.score, data.correct_answer, data.is_active),
+            )
+            connection.commit()
+            return ok({"id": cursor.lastrowid}, "创建成功")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.put("/api/admin/questions/{question_id}")
+def update_question(question_id: int, data: QuestionCreate, current_admin: dict = Depends(get_current_admin)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE questions SET question=%s, option_a=%s, option_b=%s, option_c=%s, option_d=%s, "
+                "score=%s, correct_answer=%s, is_active=%s WHERE id=%s",
+                (data.question, data.option_a, data.option_b, data.option_c, data.option_d,
+                 data.score, data.correct_answer, data.is_active, question_id),
+            )
+            connection.commit()
+        return ok(None, "更新成功")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.delete("/api/admin/questions/{question_id}")
+def delete_question(question_id: int, current_admin: dict = Depends(get_current_admin)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM questions WHERE id = %s", (question_id,))
             connection.commit()
         return ok(None, "删除成功")
     except Exception as e:

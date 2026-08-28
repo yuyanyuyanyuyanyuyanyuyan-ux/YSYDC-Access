@@ -220,6 +220,42 @@ def build_menus(top: bool) -> list:
                 "alwaysShow": False,
             }
         )
+        children.append(
+            {
+                "id": 15,
+                "name": "预约列表",
+                "permission": "reservation:list",
+                "type": 2,
+                "sort": 5,
+                "parentId": 1,
+                "path": "reservations",
+                "icon": "ep:calendar",
+                "component": "bpm/reservation/index",
+                "componentName": "ReservationList",
+                "status": 0,
+                "visible": True,
+                "keepAlive": True,
+                "alwaysShow": False,
+            }
+        )
+        children.append(
+            {
+                "id": 16,
+                "name": "题库管理",
+                "permission": "question:manage",
+                "type": 2,
+                "sort": 6,
+                "parentId": 1,
+                "path": "questions",
+                "icon": "ep:document",
+                "component": "question/index",
+                "componentName": "QuestionBank",
+                "status": 0,
+                "visible": True,
+                "keepAlive": True,
+                "alwaysShow": False,
+            }
+        )
     return [
         {
             "id": 1,
