@@ -1,3 +1,5 @@
+const { BASE_URL } = require('../../config')
+
 Page({
   data: {
     username: '',
@@ -20,7 +22,7 @@ Page({
     }
     wx.showLoading({ title: '登录中' })
     wx.request({
-      url: 'http://127.0.0.1:8000/api/business/login',
+      url: BASE_URL + '/api/business/login',
       method: 'POST',
       header: { 'content-type': 'application/json' },
       data: { username, password },

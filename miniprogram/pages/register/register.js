@@ -1,7 +1,10 @@
+const { BASE_URL } = require('../../config')
+
 Page({
 
   data: {
     name: '',
+    id_card: '',
     phone: '',
     password: '',
     company: ''
@@ -9,6 +12,10 @@ Page({
 
   inputName(e) {
     this.setData({ name: e.detail.value })
+  },
+
+  inputIdCard(e) {
+    this.setData({ id_card: e.detail.value })
   },
 
   inputPhone(e) {
@@ -24,10 +31,18 @@ Page({
   },
 
   submitForm() {
-    const { name, phone, password, company } = this.data
+    const { name, id_card, phone, password, company } = this.data
 
     if (!name.trim()) {
       wx.showToast({ title: '请输入姓名', icon: 'none' })
+      return
+    }
+    if (!id_card.trim()) {
+      wx.showToast({ title: '请输入身份证号', icon: 'none' })
+      return
+    }
+    if (!/^\d{17}[\dXx]$/.test(id_card.trim())) {
+      wx.showToast({ title: '请输入正确的18位身份证号', icon: 'none' })
       return
     }
     if (!/^1[3-9]\d{9}$/.test(phone)) {
@@ -38,18 +53,14 @@ Page({
       wx.showToast({ title: '密码至少6位', icon: 'none' })
       return
     }
-    if (!company.trim()) {
-      wx.showToast({ title: '请输入公司或单位', icon: 'none' })
-      return
-    }
 
     wx.showLoading({ title: '正在注册' })
 
     wx.request({
-      url: 'http://127.0.0.1:8000/api/visitor/register',
+      url: BASE_URL + '/api/visitor/register',
       method: 'POST',
       header: { 'content-type': 'application/json' },
-      data: { name, phone, password, company },
+      data: { name, id_card, phone, password, company },
 
       success: (res) => {
         if (res.data.success) {

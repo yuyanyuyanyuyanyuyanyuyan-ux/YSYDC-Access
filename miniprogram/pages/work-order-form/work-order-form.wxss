@@ -30,6 +30,15 @@
   padding: 18rpx;
   font-size: 28rpx;
 }
+.textarea {
+  border: 1rpx solid #e0e0e0;
+  border-radius: 10rpx;
+  padding: 18rpx;
+  font-size: 28rpx;
+  width: 100%;
+  min-height: 120rpx;
+  box-sizing: border-box;
+}
 .half {
   flex: 1;
 }

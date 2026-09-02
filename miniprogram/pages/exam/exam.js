@@ -1,3 +1,5 @@
+const { BASE_URL } = require('../../config')
+
 Page({
 
   data: {
@@ -48,7 +50,7 @@ Page({
     wx.request({
 
       // 本地 FastAPI 服务器
-      url: 'http://127.0.0.1:8000/api/questions',
+      url: BASE_URL + '/api/questions',
 
       method: 'GET',
 
@@ -632,7 +634,7 @@ confirmSubmit() {
 
   wx.request({
 
-    url: 'http://127.0.0.1:8000/api/submit-exam',
+    url: BASE_URL + '/api/submit-exam',
 
     method: 'POST',
 

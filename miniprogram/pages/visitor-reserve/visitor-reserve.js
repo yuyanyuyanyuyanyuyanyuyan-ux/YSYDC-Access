@@ -1,3 +1,5 @@
+const { BASE_URL } = require('../../config')
+
 Page({
   data: {
     company: '',
@@ -66,7 +68,7 @@ Page({
     }
     wx.showLoading({ title: '提交中' })
     wx.request({
-      url: 'http://127.0.0.1:8000/api/reservations',
+      url: BASE_URL + '/api/reservations',
       method: 'POST',
       header: { 'content-type': 'application/json' },
       data: {

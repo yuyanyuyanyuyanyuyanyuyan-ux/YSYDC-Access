@@ -1,3 +1,5 @@
+const { BASE_URL } = require('../../config')
+
 Page({
   data: {
     list: []
@@ -10,7 +12,7 @@ Page({
       return
     }
     wx.request({
-      url: `http://127.0.0.1:8000/api/visitor/credentials/${userId}`,
+      url: `${BASE_URL}/api/visitor/credentials/${userId}`,
       method: 'GET',
       success: (res) => {
         if (res.data.success) {

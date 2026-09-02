@@ -28,6 +28,9 @@
   font-size: 26rpx;
   border-bottom: 1rpx solid #f0f0f0;
 }
+.persons {
+  padding: 6rpx 0 6rpx 16rpx;
+}
 .hist-item {
   padding: 14rpx 0;
   border-bottom: 1rpx solid #f0f0f0;

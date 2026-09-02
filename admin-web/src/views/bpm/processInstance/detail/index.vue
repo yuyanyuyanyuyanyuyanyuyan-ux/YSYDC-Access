@@ -6,13 +6,14 @@
         <span class="font-bold">工单/预约信息</span>
       </template>
       <el-descriptions :column="3" border>
-        <el-descriptions-item label="来访单位">{{ detail.company }}</el-descriptions-item>
-        <el-descriptions-item label="进入时间">{{ detail.entry_time }}</el-descriptions-item>
-        <el-descriptions-item label="出去时间">{{ detail.exit_time }}</el-descriptions-item>
-        <el-descriptions-item label="进出原因">{{ detail.reason }}</el-descriptions-item>
-        <el-descriptions-item label="活动区域">{{ detail.area }}</el-descriptions-item>
-        <el-descriptions-item label="陪同人员">{{ detail.accompanying_person }}</el-descriptions-item>
-        <el-descriptions-item label="联系人">{{ detail.contact_name }} {{ detail.contact_phone }}</el-descriptions-item>
+        <template v-for="f in detail.display_fields || []" :key="f.field_key">
+          <el-descriptions-item v-if="f.input_type !== 'visitors'" :label="f.field_name">
+            {{ f.value || '—' }}
+          </el-descriptions-item>
+          <el-descriptions-item v-else :label="f.field_name">
+            {{ (f.value || []).length }} 人
+          </el-descriptions-item>
+        </template>
         <el-descriptions-item label="审批状态">
           <el-tag :type="statusTagType">{{ statusText }}</el-tag>
         </el-descriptions-item>
@@ -20,12 +21,12 @@
       </el-descriptions>
     </el-card>
 
-    <!-- 来访人员 -->
-    <el-card shadow="never" class="mb-20px">
+    <!-- 来访人员详情 -->
+    <el-card v-if="visitorField && visitorField.value && visitorField.value.length" shadow="never" class="mb-20px">
       <template #header>
-        <span class="font-bold">来访人员（{{ (detail.visitors || []).length }}人）</span>
+        <span class="font-bold">来访人员（{{ visitorField.value.length }}人）</span>
       </template>
-      <el-table :data="detail.visitors || []" size="small" border>
+      <el-table :data="visitorField.value" size="small" border>
         <el-table-column prop="name" label="姓名" min-width="100" />
         <el-table-column prop="id_card" label="身份证" min-width="160" />
         <el-table-column prop="phone" label="电话" min-width="130" />
@@ -108,6 +109,9 @@ const statusText = computed(() => {
 const statusTagType = computed<'success' | 'warning' | 'danger' | 'info'>(() => {
   const m: Record<string, 'success' | 'warning' | 'danger' | 'info'> = { pending: 'warning', approved: 'success', rejected: 'danger' }
   return m[detail.value.approval_status] || 'info'
+})
+const visitorField = computed(() => {
+  return (detail.value.display_fields || []).find((f: any) => f.input_type === 'visitors') || null
 })
 
 const flowStatusText = (s: string) => {

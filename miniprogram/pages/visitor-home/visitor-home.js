@@ -1,3 +1,5 @@
+const { BASE_URL } = require('../../config')
+
 Page({
   data: {
     visitor: null,
@@ -17,7 +19,7 @@ Page({
   loadStatus() {
     const userId = wx.getStorageSync('user_id')
     wx.request({
-      url: `http://127.0.0.1:8000/api/visitor/status/${userId}`,
+      url: `${BASE_URL}/api/visitor/status/${userId}`,
       method: 'GET',
       success: (res) => {
         if (res.data.success) {

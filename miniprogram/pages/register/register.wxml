@@ -2,7 +2,7 @@
 
   <view class="header">
     <view class="title">访客注册</view>
-    <view class="subtitle">请填写信息，系统将匹配已审批的工单</view>
+    <view class="subtitle">请填写信息，系统将按身份证号匹配已审批的工单</view>
   </view>
 
   <view class="form-card">
@@ -10,6 +10,11 @@
     <view class="form-item">
       <view class="label">姓名<text class="required">*</text></view>
       <input class="input" placeholder="请输入姓名" value="{{name}}" bindinput="inputName" />
+    </view>
+
+    <view class="form-item">
+      <view class="label">身份证号<text class="required">*</text></view>
+      <input class="input" placeholder="请输入身份证号（用于匹配工单）" value="{{id_card}}" bindinput="inputIdCard" />
     </view>
 
     <view class="form-item">
@@ -23,8 +28,8 @@
     </view>
 
     <view class="form-item">
-      <view class="label">公司 / 单位<text class="required">*</text></view>
-      <input class="input" placeholder="请输入公司或单位名称（用于匹配工单）" value="{{company}}" bindinput="inputCompany" />
+      <view class="label">公司 / 单位</view>
+      <input class="input" placeholder="请输入公司或单位名称（选填）" value="{{company}}" bindinput="inputCompany" />
     </view>
 
   </view>
@@ -32,7 +37,7 @@
   <button class="next-button" bindtap="submitForm">注册</button>
 
   <view class="notice">
-    <text>请确保公司名称与业务部提交的工单一致</text>
+    <text>身份证号需与业务部提交工单中的来访人员一致</text>
   </view>
 
 </view>

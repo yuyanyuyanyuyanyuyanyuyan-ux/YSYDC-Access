@@ -6,77 +6,93 @@
 
   <view class="form">
 
-    <view class="field">
-      <view class="label">来访单位<text class="required">*</text></view>
-      <input class="input" placeholder="请输入来访单位名称" value="{{company}}" data-field="company" bindinput="input" />
-    </view>
+    <!-- 按字段定义动态渲染 -->
+    <block wx:for="{{fields}}" wx:key="field_key" wx:for-item="f">
+      <view class="field">
+        <view class="label">{{f.field_name}}<text wx:if="{{f.required}}" class="required">*</text></view>
 
-    <view class="field">
-      <view class="label">来访人员</view>
-      <view wx:for="{{visitors}}" wx:key="index" class="visitor-item">
-        <view class="visitor-row">
-          <input class="input half" placeholder="姓名" value="{{item.name}}" data-index="{{index}}" data-field="name" bindinput="onVisitorInput" />
-          <input class="input half" placeholder="身份证" value="{{item.id_card}}" data-index="{{index}}" data-field="id_card" bindinput="onVisitorInput" />
+        <!-- 单行文本 -->
+        <input
+          wx:if="{{f.input_type === 'text'}}"
+          class="input"
+          placeholder="请输入{{f.field_name}}"
+          value="{{formValues[f.field_key]}}"
+          data-key="{{f.field_key}}"
+          bindinput="onTextInput"
+        />
+
+        <!-- 多行文本 -->
+        <textarea
+          wx:elif="{{f.input_type === 'textarea'}}"
+          class="textarea"
+          placeholder="请输入{{f.field_name}}"
+          value="{{formValues[f.field_key]}}"
+          data-key="{{f.field_key}}"
+          bindinput="onTextInput"
+        ></textarea>
+
+        <!-- 选择框 -->
+        <picker
+          wx:elif="{{f.input_type === 'select'}}"
+          mode="selector"
+          range="{{f.options}}"
+          value="{{selectIndex[f.field_key]}}"
+          data-key="{{f.field_key}}"
+          bindchange="onSelectChange"
+        >
+          <view class="picker">{{formValues[f.field_key] || '请选择' + f.field_name}}</view>
+        </picker>
+
+        <!-- 日期 -->
+        <picker
+          wx:elif="{{f.input_type === 'date'}}"
+          mode="date"
+          value="{{formValues[f.field_key]}}"
+          data-key="{{f.field_key}}"
+          bindchange="onDateChange"
+        >
+          <view class="picker">{{formValues[f.field_key] || '选择日期'}}</view>
+        </picker>
+
+        <!-- 时间 -->
+        <picker
+          wx:elif="{{f.input_type === 'time'}}"
+          mode="time"
+          value="{{formValues[f.field_key]}}"
+          data-key="{{f.field_key}}"
+          bindchange="onTimeChange"
+        >
+          <view class="picker">{{formValues[f.field_key] || '选择时间'}}</view>
+        </picker>
+
+        <!-- 日期时间（日期 + 时间组合） -->
+        <view wx:elif="{{f.input_type === 'datetime'}}" class="time-row">
+          <picker mode="date" value="{{dtDate[f.field_key]}}" data-key="{{f.field_key}}" data-part="date" bindchange="onDateTimeChange">
+            <view class="picker">{{dtDate[f.field_key] || '选择日期'}}</view>
+          </picker>
+          <picker mode="time" value="{{dtTime[f.field_key]}}" data-key="{{f.field_key}}" data-part="time" bindchange="onDateTimeChange">
+            <view class="picker">{{dtTime[f.field_key] || '选择时间'}}</view>
+          </picker>
         </view>
-        <view class="visitor-row">
-          <input class="input half" placeholder="电话" type="number" maxlength="11" value="{{item.phone}}" data-index="{{index}}" data-field="phone" bindinput="onVisitorInput" />
-          <input class="input half" placeholder="单位" value="{{item.unit}}" data-index="{{index}}" data-field="unit" bindinput="onVisitorInput" />
-        </view>
-        <view class="visitor-del" data-index="{{index}}" bindtap="removeVisitor">删除此人</view>
+
+        <!-- 来访人员（多人列表） -->
+        <block wx:elif="{{f.input_type === 'visitors'}}">
+          <view wx:for="{{visitors}}" wx:key="index" class="visitor-item">
+            <view class="visitor-row">
+              <input class="input half" placeholder="姓名（必填）" value="{{item.name}}" data-index="{{index}}" data-field="name" bindinput="onVisitorInput" />
+              <input class="input half" placeholder="身份证号（必填）" value="{{item.id_card}}" data-index="{{index}}" data-field="id_card" bindinput="onVisitorInput" />
+            </view>
+            <view class="visitor-row">
+              <input class="input half" placeholder="电话" type="number" maxlength="11" value="{{item.phone}}" data-index="{{index}}" data-field="phone" bindinput="onVisitorInput" />
+              <input class="input half" placeholder="单位" value="{{item.unit}}" data-index="{{index}}" data-field="unit" bindinput="onVisitorInput" />
+            </view>
+            <view class="visitor-del" data-index="{{index}}" bindtap="removeVisitor">删除此人</view>
+          </view>
+          <view class="add-btn" bindtap="addVisitor">+ 添加人员</view>
+        </block>
+
       </view>
-      <view class="add-btn" bindtap="addVisitor">+ 添加人员</view>
-    </view>
-
-    <view class="field">
-      <view class="label">进入时间</view>
-      <view class="time-row">
-        <picker mode="date" value="{{entry_date}}" data-field="entry_date" bindchange="onDateChange">
-          <view class="picker">{{entry_date || '选择日期'}}</view>
-        </picker>
-        <picker mode="time" value="{{entry_time}}" data-field="entry_time" bindchange="onTimeChange">
-          <view class="picker">{{entry_time || '选择时间'}}</view>
-        </picker>
-      </view>
-    </view>
-
-    <view class="field">
-      <view class="label">出去时间</view>
-      <view class="time-row">
-        <picker mode="date" value="{{exit_date}}" data-field="exit_date" bindchange="onDateChange">
-          <view class="picker">{{exit_date || '选择日期'}}</view>
-        </picker>
-        <picker mode="time" value="{{exit_time}}" data-field="exit_time" bindchange="onTimeChange">
-          <view class="picker">{{exit_time || '选择时间'}}</view>
-        </picker>
-      </view>
-    </view>
-
-    <view class="field">
-      <view class="label">进出原因</view>
-      <picker mode="selector" range="{{reasons}}" value="{{reason_index}}" bindchange="onReasonChange">
-        <view class="picker">{{reason || '请选择进出原因'}}</view>
-      </picker>
-    </view>
-
-    <view class="field">
-      <view class="label">活动区域</view>
-      <input class="input" placeholder="请输入活动区域" value="{{area}}" data-field="area" bindinput="input" />
-    </view>
-
-    <view class="field">
-      <view class="label">来访单位联系人</view>
-      <input class="input" placeholder="联系人姓名" value="{{contact_name}}" data-field="contact_name" bindinput="input" />
-    </view>
-
-    <view class="field">
-      <view class="label">联系人电话</view>
-      <input class="input" placeholder="联系人电话" type="number" maxlength="11" value="{{contact_phone}}" data-field="contact_phone" bindinput="input" />
-    </view>
-
-    <view class="field">
-      <view class="label">陪同人员</view>
-      <input class="input" placeholder="请输入陪同人员" value="{{accompanying_person}}" data-field="accompanying_person" bindinput="input" />
-    </view>
+    </block>
 
   </view>
 

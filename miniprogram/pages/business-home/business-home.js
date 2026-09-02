@@ -1,3 +1,5 @@
+const { BASE_URL } = require('../../config')
+
 Page({
   data: {
     tab: 0,
@@ -22,7 +24,7 @@ Page({
       return
     }
     wx.request({
-      url: 'http://127.0.0.1:8000/api/work-orders/mine',
+      url: BASE_URL + '/api/work-orders/mine',
       method: 'GET',
       header: { 'Authorization': 'Bearer ' + token },
       success: (res) => {

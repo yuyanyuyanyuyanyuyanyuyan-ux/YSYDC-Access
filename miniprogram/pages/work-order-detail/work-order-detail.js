@@ -1,3 +1,5 @@
+const { BASE_URL } = require('../../config')
+
 Page({
   data: {
     workOrder: null
@@ -6,7 +8,7 @@ Page({
   onLoad(options) {
     const token = wx.getStorageSync('business_token')
     wx.request({
-      url: `http://127.0.0.1:8000/api/work-orders/${options.id}`,
+      url: `${BASE_URL}/api/work-orders/${options.id}`,
       method: 'GET',
       header: { 'Authorization': 'Bearer ' + token },
       success: (res) => {

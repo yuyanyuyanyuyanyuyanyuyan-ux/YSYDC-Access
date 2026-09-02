@@ -1,3 +1,5 @@
+const { BASE_URL } = require('../../config')
+
 Page({
   data: {
     credential: null
@@ -11,7 +13,7 @@ Page({
     }
     wx.showLoading({ title: '加载凭证' })
     wx.request({
-      url: `http://127.0.0.1:8000/api/credential/${userId}`,
+      url: `${BASE_URL}/api/credential/${userId}`,
       method: 'GET',
       success: (res) => {
         if (res.data.success) {

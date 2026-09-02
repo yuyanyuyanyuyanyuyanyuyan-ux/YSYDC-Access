@@ -60,7 +60,8 @@ class VisitorRegister(BaseModel):
     name: str
     phone: str
     password: str
-    company: str
+    company: str = ""
+    id_card: str = ""
 
 
 class VisitorLogin(BaseModel):
@@ -102,6 +103,7 @@ class WorkOrderCreate(BaseModel):
     contact_phone: str = ""
     accompanying_person: str = ""
     is_draft: bool = False
+    custom_fields: dict = {}
 
 
 class ReservationCreate(BaseModel):
@@ -126,6 +128,21 @@ class QuestionCreate(BaseModel):
     score: int = 10
     correct_answer: str = "A"
     is_active: bool = True
+
+
+class WorkOrderFieldItem(BaseModel):
+    """工单结构中的一个字段条目。"""
+    field_key: str = ""          # 默认字段=固定列名；自定义字段=custom_{id}
+    field_name: str              # 显示名
+    input_type: str = "text"     # text/textarea/select/date/time/datetime/visitors
+    options: list = []           # select 的选项
+    required: bool = False
+    sort_order: int = 0
+
+
+class WorkOrderFieldsSave(BaseModel):
+    """批量保存整个工单结构。"""
+    fields: list[WorkOrderFieldItem]
 
 
 class ApprovalAction(BaseModel):
@@ -179,6 +196,57 @@ def find_admin_by_role(cursor, role: str):
         (role,),
     )
     return cursor.fetchone()
+
+
+def build_display_fields(cursor, wo: dict):
+    """按工单字段定义，把工单值组装成有序的 display_fields（前端直接遍历展示）。
+
+    wo 需要含固定列 + custom_fields(已解析为 dict)。visitors 列已解析为 list。
+    """
+    cursor.execute(
+        "SELECT field_key, field_name, input_type, options FROM work_order_fields ORDER BY sort_order ASC, id ASC"
+    )
+    fields = cursor.fetchall()
+
+    fixed_keys = {"company", "visitors", "entry_time", "exit_time", "reason", "area",
+                  "contact_name", "contact_phone", "accompanying_person"}
+    custom = wo.get("custom_fields") or {}
+
+    result = []
+    for f in fields:
+        key = f["field_key"]
+        if key in fixed_keys:
+            value = wo.get(key, "")
+        else:
+            value = custom.get(key, "")
+        result.append({
+            "field_key": key,
+            "field_name": f["field_name"],
+            "input_type": f["input_type"],
+            "value": value,
+        })
+    return result
+
+
+def build_credential_display(cursor, cred: dict):
+    """根据凭证关联的工单或预约，按字段定义组装 display_fields（跟随工单结构更新）。"""
+    work_order_id = cred.get("work_order_id")
+    reservation_id = cred.get("reservation_id")
+    if work_order_id:
+        cursor.execute("SELECT * FROM work_orders WHERE id = %s", (work_order_id,))
+        wo = cursor.fetchone()
+        if wo:
+            wo["visitors"] = json.loads(wo["visitors"]) if wo.get("visitors") else []
+            wo["custom_fields"] = json.loads(wo["custom_fields"]) if wo.get("custom_fields") else {}
+            return build_display_fields(cursor, wo)
+    if reservation_id:
+        cursor.execute("SELECT * FROM reservations WHERE id = %s", (reservation_id,))
+        rv = cursor.fetchone()
+        if rv:
+            rv["visitors"] = json.loads(rv["visitors"]) if rv.get("visitors") else []
+            rv["custom_fields"] = {}
+            return build_display_fields(cursor, rv)
+    return []
 
 
 def sync_biz_status(cursor, approval_record_id: int, status: str):
@@ -277,9 +345,9 @@ def visitor_register(data: VisitorRegister):
             if cursor.fetchone():
                 return {"success": False, "message": "该手机号已注册"}
             cursor.execute(
-                "INSERT INTO users (name, phone, password, company, identity_type, visit_purpose) "
-                "VALUES (%s, %s, %s, %s, '', '')",
-                (data.name, data.phone, data.password, data.company),
+                "INSERT INTO users (name, phone, password, company, id_card, identity_type, visit_purpose) "
+                "VALUES (%s, %s, %s, %s, %s, '', '')",
+                (data.name, data.phone, data.password, data.company, data.id_card),
             )
             connection.commit()
             user_id = cursor.lastrowid
@@ -343,16 +411,19 @@ def submit_exam(data: ExamSubmit):
             # 4. 通过且（有已通过工单 或 已通过预约）→ 生成准入凭证
             credential = None
             if passed:
-                cursor.execute("SELECT company FROM users WHERE id = %s", (data.user_id,))
+                cursor.execute("SELECT id_card FROM users WHERE id = %s", (data.user_id,))
                 user_row = cursor.fetchone()
                 if user_row:
-                    company = user_row["company"]
-                    cursor.execute(
-                        "SELECT id FROM work_orders WHERE company = %s AND status = 'approved' "
-                        "ORDER BY id DESC LIMIT 1",
-                        (company,),
-                    )
-                    wo = cursor.fetchone()
+                    id_card = user_row["id_card"] or ""
+                    # 按身份证号匹配审批通过的工单（来访人员 JSON 中含该身份证号）
+                    wo = None
+                    if id_card:
+                        cursor.execute(
+                            "SELECT id FROM work_orders WHERE status = 'approved' "
+                            "AND visitors LIKE %s ORDER BY id DESC LIMIT 1",
+                            (f"%{id_card}%",),
+                        )
+                        wo = cursor.fetchone()
                     cursor.execute(
                         "SELECT id FROM reservations WHERE visitor_id = %s AND status = 'approved' "
                         "ORDER BY id DESC LIMIT 1",
@@ -404,15 +475,10 @@ def get_credential(user_id: int):
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT c.id, c.created_at AS issued_at,
-                       u.name, u.phone, u.company,
-                       COALESCE(w.entry_time, r.entry_time) AS entry_time,
-                       COALESCE(w.accompanying_person, r.accompanying_person) AS accompanying_person,
-                       e.score
+                SELECT c.id, c.work_order_id, c.reservation_id, c.exam_record_id,
+                       c.created_at AS issued_at, u.name, u.phone, e.score
                 FROM credentials c
                 JOIN users u ON c.user_id = u.id
-                LEFT JOIN work_orders w ON c.work_order_id = w.id
-                LEFT JOIN reservations r ON c.reservation_id = r.id
                 JOIN exam_records e ON c.exam_record_id = e.id
                 WHERE c.user_id = %s
                 ORDER BY c.id DESC LIMIT 1
@@ -422,6 +488,8 @@ def get_credential(user_id: int):
             credential = cursor.fetchone()
         if not credential:
             return {"success": False, "message": "暂无准入凭证"}
+        # 工单/预约字段按当前结构动态组装（跟随工单更新）
+        credential["display_fields"] = build_credential_display(cursor, credential)
         return {"success": True, "credential": credential}
     finally:
         connection.close()
@@ -462,18 +530,20 @@ def visitor_status(user_id: int):
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT company FROM users WHERE id = %s", (user_id,))
+            cursor.execute("SELECT id_card FROM users WHERE id = %s", (user_id,))
             user = cursor.fetchone()
             if not user:
                 return {"success": False, "message": "用户不存在"}
-            company = user["company"]
+            id_card = user["id_card"] or ""
 
-            cursor.execute(
-                "SELECT status FROM work_orders WHERE company = %s AND status != 'draft' "
-                "ORDER BY id DESC LIMIT 1",
-                (company,),
-            )
-            wo = cursor.fetchone()
+            wo = None
+            if id_card:
+                cursor.execute(
+                    "SELECT status FROM work_orders WHERE visitors LIKE %s AND status != 'draft' "
+                    "ORDER BY id DESC LIMIT 1",
+                    (f"%{id_card}%",),
+                )
+                wo = cursor.fetchone()
             cursor.execute(
                 "SELECT status FROM reservations WHERE visitor_id = %s ORDER BY id DESC LIMIT 1",
                 (user_id,),
@@ -535,18 +605,16 @@ def visitor_credentials(user_id: int):
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT c.id, c.created_at AS issued_at, "
-                "COALESCE(w.company, r.company) AS company, "
-                "COALESCE(w.entry_time, r.entry_time) AS entry_time, "
-                "COALESCE(w.accompanying_person, r.accompanying_person) AS accompanying_person, "
-                "e.score "
-                "FROM credentials c LEFT JOIN work_orders w ON c.work_order_id = w.id "
-                "LEFT JOIN reservations r ON c.reservation_id = r.id "
+                "SELECT c.id, c.work_order_id, c.reservation_id, c.exam_record_id, "
+                "c.created_at AS issued_at, e.score "
+                "FROM credentials c "
                 "JOIN exam_records e ON c.exam_record_id = e.id "
                 "WHERE c.user_id = %s ORDER BY c.id DESC",
                 (user_id,),
             )
             credentials = cursor.fetchall()
+        for c in credentials:
+            c["display_fields"] = build_credential_display(cursor, c)
         return {"success": True, "list": credentials}
     finally:
         connection.close()
@@ -617,17 +685,18 @@ def create_work_order(data: WorkOrderCreate, member: dict = Depends(get_current_
     try:
         with connection.cursor() as cursor:
             visitors_json = json.dumps(data.visitors, ensure_ascii=False)
+            custom_json = json.dumps(data.custom_fields, ensure_ascii=False)
             status = 'draft' if data.is_draft else 'pending'
             cursor.execute(
                 """
                 INSERT INTO work_orders
                 (business_member_id, company, visitors, entry_time, exit_time, reason, area,
-                 contact_name, contact_phone, accompanying_person, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 contact_name, contact_phone, accompanying_person, custom_fields, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (member["id"], data.company, visitors_json, data.entry_time, data.exit_time,
                  data.reason, data.area, data.contact_name, data.contact_phone,
-                 data.accompanying_person, status),
+                 data.accompanying_person, custom_json, status),
             )
             work_order_id = cursor.lastrowid
 
@@ -655,7 +724,7 @@ def get_my_work_orders(member: dict = Depends(get_current_business_member)):
             cursor.execute(
                 """
                 SELECT id, company, visitors, entry_time, exit_time, reason, area,
-                       contact_name, contact_phone, accompanying_person, status, created_at
+                       contact_name, contact_phone, accompanying_person, custom_fields, status, created_at
                 FROM work_orders
                 WHERE business_member_id = %s
                 ORDER BY id DESC
@@ -665,6 +734,7 @@ def get_my_work_orders(member: dict = Depends(get_current_business_member)):
             rows = cursor.fetchall()
         for row in rows:
             row["visitors"] = json.loads(row["visitors"]) if row.get("visitors") else []
+            row["custom_fields"] = json.loads(row["custom_fields"]) if row.get("custom_fields") else {}
         return {"success": True, "list": rows}
     finally:
         connection.close()
@@ -678,7 +748,7 @@ def get_work_order_detail(work_order_id: int, member: dict = Depends(get_current
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT id, company, visitors, entry_time, exit_time, reason, area, "
-                "contact_name, contact_phone, accompanying_person, status, created_at "
+                "contact_name, contact_phone, accompanying_person, custom_fields, status, created_at "
                 "FROM work_orders WHERE id = %s",
                 (work_order_id,),
             )
@@ -686,6 +756,8 @@ def get_work_order_detail(work_order_id: int, member: dict = Depends(get_current
             if not wo:
                 return {"success": False, "message": "工单不存在"}
             wo["visitors"] = json.loads(wo["visitors"]) if wo.get("visitors") else []
+            wo["custom_fields"] = json.loads(wo["custom_fields"]) if wo.get("custom_fields") else {}
+            wo["display_fields"] = build_display_fields(cursor, wo)
 
             progress = {"current_step": None, "history": []}
             cursor.execute("SELECT id FROM approval_records WHERE work_order_id = %s LIMIT 1", (work_order_id,))
@@ -719,11 +791,14 @@ def update_work_order(work_order_id: int, data: WorkOrderCreate, member: dict = 
     try:
         with connection.cursor() as cursor:
             visitors_json = json.dumps(data.visitors, ensure_ascii=False)
+            custom_json = json.dumps(data.custom_fields, ensure_ascii=False)
             cursor.execute(
                 "UPDATE work_orders SET company=%s, visitors=%s, entry_time=%s, exit_time=%s, reason=%s, "
-                "area=%s, contact_name=%s, contact_phone=%s, accompanying_person=%s WHERE id=%s AND status='draft'",
+                "area=%s, contact_name=%s, contact_phone=%s, accompanying_person=%s, custom_fields=%s "
+                "WHERE id=%s AND status='draft'",
                 (data.company, visitors_json, data.entry_time, data.exit_time, data.reason,
-                 data.area, data.contact_name, data.contact_phone, data.accompanying_person, work_order_id),
+                 data.area, data.contact_name, data.contact_phone, data.accompanying_person,
+                 custom_json, work_order_id),
             )
             connection.commit()
         return {"success": True, "message": "草稿已更新"}
@@ -1209,6 +1284,7 @@ def get_work_orders(
                     work_orders.reason, work_orders.area,
                     work_orders.contact_name, work_orders.contact_phone,
                     work_orders.accompanying_person, work_orders.visitors,
+                    work_orders.custom_fields,
                     work_orders.status AS approval_status,
                     work_orders.created_at AS application_time,
                     (SELECT s.step_name FROM approval_tasks t
@@ -1225,6 +1301,7 @@ def get_work_orders(
             rows = cursor.fetchall()
         for row in rows:
             row["visitors"] = json.loads(row["visitors"]) if row.get("visitors") else []
+            row["custom_fields"] = json.loads(row["custom_fields"]) if row.get("custom_fields") else {}
         return ok({"list": rows, "total": len(rows)})
     finally:
         connection.close()
@@ -1248,6 +1325,7 @@ def get_approval_detail(record_id: int, current_admin: dict = Depends(get_curren
                     COALESCE(work_orders.contact_phone, reservations.contact_phone) AS contact_phone,
                     COALESCE(work_orders.accompanying_person, reservations.accompanying_person) AS accompanying_person,
                     COALESCE(work_orders.visitors, reservations.visitors) AS visitors,
+                    work_orders.custom_fields AS custom_fields,
                     approval_records.status AS approval_status,
                     approval_records.created_at AS application_time
                 FROM approval_records
@@ -1261,6 +1339,8 @@ def get_approval_detail(record_id: int, current_admin: dict = Depends(get_curren
             if not detail:
                 return fail("审批记录不存在")
             detail["visitors"] = json.loads(detail["visitors"]) if detail.get("visitors") else []
+            detail["custom_fields"] = json.loads(detail["custom_fields"]) if detail.get("custom_fields") else {}
+            detail["display_fields"] = build_display_fields(cursor, detail)
 
             # 2. 只要还有 pending 任务，状态强制为 pending
             cursor.execute(
@@ -1518,6 +1598,135 @@ def delete_question(question_id: int, current_admin: dict = Depends(get_current_
     except Exception as e:
         connection.rollback()
         return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+# =========================
+# 管理端：自定义工单结构
+# =========================
+
+# 默认工单结构（恢复默认时据此重建；field_key 与 work_orders 固定列对应）
+DEFAULT_WORK_ORDER_FIELDS = [
+    {"field_key": "company",             "field_name": "来访单位",       "input_type": "text",     "options": [], "required": True,  "sort_order": 1},
+    {"field_key": "visitors",            "field_name": "来访人员",       "input_type": "visitors", "options": [], "required": False, "sort_order": 2},
+    {"field_key": "entry_time",          "field_name": "进入时间",       "input_type": "datetime", "options": [], "required": False, "sort_order": 3},
+    {"field_key": "exit_time",           "field_name": "出去时间",       "input_type": "datetime", "options": [], "required": False, "sort_order": 4},
+    {"field_key": "reason",              "field_name": "进出原因",       "input_type": "select",   "options": ["设备维护", "施工", "参观考察", "业务洽谈", "其他"], "required": False, "sort_order": 5},
+    {"field_key": "area",                "field_name": "活动区域",       "input_type": "text",     "options": [], "required": False, "sort_order": 6},
+    {"field_key": "contact_name",        "field_name": "来访单位联系人", "input_type": "text",     "options": [], "required": False, "sort_order": 7},
+    {"field_key": "contact_phone",       "field_name": "联系人电话",     "input_type": "text",     "options": [], "required": False, "sort_order": 8},
+    {"field_key": "accompanying_person", "field_name": "陪同人员",       "input_type": "text",     "options": [], "required": False, "sort_order": 9},
+]
+
+
+def _parse_field_row(row):
+    """把 options 列（JSON 字符串）解析成列表，供前端直接使用。"""
+    if row.get("options"):
+        try:
+            row["options"] = json.loads(row["options"])
+        except Exception:
+            row["options"] = []
+    else:
+        row["options"] = []
+    return row
+
+
+@app.get("/api/admin/work-order-fields")
+def list_work_order_fields(current_admin: dict = Depends(get_current_admin)):
+    """当前工单结构（默认字段 + 自定义字段）。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, field_key, field_name, input_type, options, required, sort_order, is_default "
+                "FROM work_order_fields ORDER BY sort_order ASC, id ASC"
+            )
+            rows = cursor.fetchall()
+        rows = [_parse_field_row(r) for r in rows]
+        return ok({"list": rows, "total": len(rows)})
+    finally:
+        connection.close()
+
+
+@app.post("/api/admin/work-order-fields/save")
+def save_work_order_fields(data: WorkOrderFieldsSave, current_admin: dict = Depends(get_current_admin)):
+    """批量保存整个工单结构（先清空再写入）。"""
+    connection = get_connection()
+    try:
+        if not data.fields:
+            return fail("工单结构不能为空，至少保留一个字段")
+        with connection.cursor() as cursor:
+            # 保存当前 is_default 标记（用于恢复默认），清空重建
+            cursor.execute("SELECT field_key FROM work_order_fields WHERE is_default = 1")
+            default_keys = {r["field_key"] for r in cursor.fetchall()}
+            cursor.execute("DELETE FROM work_order_fields")
+
+            fields = list(data.fields)
+            # 保护「来访人员」字段：不可被删除，且类型固定为 visitors
+            has_visitors = any(f.field_key == "visitors" for f in fields)
+            if not has_visitors:
+                fields.insert(0, WorkOrderFieldItem(
+                    field_key="visitors", field_name="来访人员",
+                    input_type="visitors", options=[], required=False, sort_order=2,
+                ))
+            for i, f in enumerate(fields):
+                key = f.field_key.strip() or f"custom_{int(time.time())}_{i}"
+                if key == "visitors":
+                    f.input_type = "visitors"  # 锁死类型
+                # 默认字段的 key 保持 is_default 标记；自定义字段 is_default=0
+                is_default = 1 if key in default_keys else 0
+                options_json = json.dumps(f.options, ensure_ascii=False)
+                cursor.execute(
+                    "INSERT INTO work_order_fields (field_key, field_name, input_type, options, required, sort_order, is_default) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (key, f.field_name, f.input_type, options_json, f.required, f.sort_order, is_default),
+                )
+            connection.commit()
+        return ok(None, "工单结构已保存")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.post("/api/admin/work-order-fields/reset")
+def reset_work_order_fields(current_admin: dict = Depends(get_current_admin)):
+    """恢复默认工单结构。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM work_order_fields")
+            for f in DEFAULT_WORK_ORDER_FIELDS:
+                options_json = json.dumps(f["options"], ensure_ascii=False)
+                cursor.execute(
+                    "INSERT INTO work_order_fields (field_key, field_name, input_type, options, required, sort_order, is_default) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, 1)",
+                    (f["field_key"], f["field_name"], f["input_type"], options_json, f["required"], f["sort_order"]),
+                )
+            connection.commit()
+        return ok(None, "已恢复默认工单结构")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.get("/api/work-order-fields/active")
+def get_active_work_order_fields(member: dict = Depends(get_current_business_member)):
+    """业务部成员拉取当前工单结构（用于工单表单动态渲染）。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, field_key, field_name, input_type, options, required, sort_order "
+                "FROM work_order_fields ORDER BY sort_order ASC, id ASC"
+            )
+            rows = cursor.fetchall()
+        rows = [_parse_field_row(r) for r in rows]
+        return {"success": True, "fields": rows}
     finally:
         connection.close()
 

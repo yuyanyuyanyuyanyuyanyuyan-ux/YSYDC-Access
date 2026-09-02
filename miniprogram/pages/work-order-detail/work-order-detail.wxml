@@ -4,21 +4,25 @@
 
     <view class="card">
       <view class="card-title">工单信息</view>
-      <view class="row"><text class="label">来访单位</text><text>{{workOrder.company}}</text></view>
-      <view class="row"><text class="label">进入时间</text><text>{{workOrder.entry_time || '—'}}</text></view>
-      <view class="row"><text class="label">出去时间</text><text>{{workOrder.exit_time || '—'}}</text></view>
-      <view class="row"><text class="label">进出原因</text><text>{{workOrder.reason || '—'}}</text></view>
-      <view class="row"><text class="label">活动区域</text><text>{{workOrder.area || '—'}}</text></view>
-      <view class="row"><text class="label">联系人</text><text>{{workOrder.contact_name}} {{workOrder.contact_phone}}</text></view>
-      <view class="row"><text class="label">陪同人员</text><text>{{workOrder.accompanying_person || '—'}}</text></view>
-    </view>
-
-    <view class="card">
-      <view class="card-title">来访人员</view>
-      <view wx:for="{{workOrder.visitors}}" wx:key="index" class="person">
-        {{item.name}} · {{item.id_card}} · {{item.phone}} · {{item.unit}}
-      </view>
-      <view wx:if="{{!workOrder.visitors.length}}" class="empty">无</view>
+      <!-- 按字段定义动态展示 -->
+      <block wx:for="{{workOrder.display_fields}}" wx:key="field_key" wx:for-item="f">
+        <!-- 来访人员：值为数组，特殊展示 -->
+        <view wx:if="{{f.input_type === 'visitors'}}" class="row">
+          <text class="label">{{f.field_name}}</text>
+          <text wx:if="{{!f.value.length}}">无</text>
+          <text wx:else>{{f.value.length}} 人</text>
+        </view>
+        <view wx:if="{{f.input_type === 'visitors' && f.value.length}}" class="persons">
+          <view wx:for="{{f.value}}" wx:key="index" wx:for-item="p" class="person">
+            {{p.name}} · {{p.id_card}} · {{p.phone}} · {{p.unit}}
+          </view>
+        </view>
+        <!-- 普通字段 -->
+        <view wx:else class="row">
+          <text class="label">{{f.field_name}}</text>
+          <text>{{f.value || '—'}}</text>
+        </view>
+      </block>
     </view>
 
     <view class="card">

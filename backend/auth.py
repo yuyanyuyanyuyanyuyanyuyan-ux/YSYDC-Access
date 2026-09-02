@@ -256,6 +256,24 @@ def build_menus(top: bool) -> list:
                 "alwaysShow": False,
             }
         )
+        children.append(
+            {
+                "id": 17,
+                "name": "自定义工单内容",
+                "permission": "work-order-custom-field:manage",
+                "type": 2,
+                "sort": 7,
+                "parentId": 1,
+                "path": "work-order-fields",
+                "icon": "ep:edit-pen",
+                "component": "work-order-field/index",
+                "componentName": "WorkOrderCustomField",
+                "status": 0,
+                "visible": True,
+                "keepAlive": True,
+                "alwaysShow": False,
+            }
+        )
     return [
         {
             "id": 1,
