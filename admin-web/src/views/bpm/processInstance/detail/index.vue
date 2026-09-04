@@ -132,7 +132,7 @@ const load = async () => {
     ])
     detail.value = d.detail || {}
     history.value = d.history || []
-    flowNodes.value = (f.nodes || []).slice().sort((a: any, b: any) => (a.step_order ?? 0) - (b.step_order ?? 0))
+    flowNodes.value = f.nodes || []
   } catch (e) {
     /* 错误提示已由 axios 拦截器统一处理 */
   }

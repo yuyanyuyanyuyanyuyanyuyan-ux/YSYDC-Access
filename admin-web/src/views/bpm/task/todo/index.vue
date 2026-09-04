@@ -58,4 +58,5 @@ const goDetail = (row: any, withTask: boolean) => {
 }
 
 onMounted(load)
+onActivated(load)
 </script>

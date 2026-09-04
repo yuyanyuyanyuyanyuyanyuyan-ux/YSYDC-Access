@@ -58,4 +58,5 @@ const goDetail = (row: any) => {
 }
 
 onMounted(load)
+onActivated(load)
 </script>

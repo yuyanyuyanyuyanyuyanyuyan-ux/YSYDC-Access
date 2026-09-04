@@ -145,6 +145,28 @@ class WorkOrderFieldsSave(BaseModel):
     fields: list[WorkOrderFieldItem]
 
 
+class WorkflowNodeCreate(BaseModel):
+    """新增审批节点（绑定具体管理员，属于某条审批流）。"""
+    step_name: str = ""
+    approver_id: int
+    node_x: int = 100
+    node_y: int = 100
+    flow_id: int = None
+
+
+class WorkflowNodeUpdate(BaseModel):
+    """编辑审批节点。"""
+    step_name: str = ""
+    approver_id: int = None
+    node_x: int = None
+    node_y: int = None
+
+
+class AccessReasonCreate(BaseModel):
+    """新增访问事务（访问原因），同步创建一条审批流。"""
+    reason: str
+
+
 class ApprovalAction(BaseModel):
     action: str
     comment: str = ""
@@ -160,19 +182,20 @@ class WorkflowNodePosition(BaseModel):
     node_y: int
 
 
-class WorkflowNodeUpdate(BaseModel):
+class WorkflowNodeMove(BaseModel):
     id: int
     node_x: int
     node_y: int
 
 
 class WorkflowNodeBatchUpdate(BaseModel):
-    nodes: list[WorkflowNodeUpdate]
+    nodes: list[WorkflowNodeMove]
 
 
 class TransitionCreate(BaseModel):
     from_step_id: int
     to_step_id: int
+    flow_id: int = None
 
 
 # =========================
@@ -196,6 +219,14 @@ def find_admin_by_role(cursor, role: str):
         (role,),
     )
     return cursor.fetchone()
+
+
+def find_admin_for_step(cursor, step: dict):
+    """根据审批节点确定审批管理员：approver_type=user 时用 approver_id；否则按角色负载均衡。"""
+    if step.get("approver_type") == "user" and step.get("approver_id"):
+        cursor.execute("SELECT id FROM admin_users WHERE id = %s", (step["approver_id"],))
+        return cursor.fetchone()
+    return find_admin_by_role(cursor, step.get("required_role", ""))
 
 
 def build_display_fields(cursor, wo: dict):
@@ -264,36 +295,88 @@ def sync_biz_status(cursor, approval_record_id: int, status: str):
         cursor.execute("UPDATE reservations SET status = %s WHERE id = %s", (status, ar["reservation_id"]))
 
 
-def start_approval(cursor, work_order_id: int):
-    """为工单启动 BPM 审批：找开始节点 → 分配第一个审批任务。返回错误信息或 None。"""
-    cursor.execute("SELECT id, step_name, required_role FROM approval_steps ORDER BY id")
+def resolve_flow_id_by_reason(cursor, reason: str):
+    """根据访问原因找到审批流 id；找不到则回退到默认流（flow_no 最小）。"""
+    if reason:
+        cursor.execute("SELECT id FROM approval_flows WHERE reason = %s LIMIT 1", (reason,))
+        row = cursor.fetchone()
+        if row:
+            return row["id"]
+    cursor.execute("SELECT id FROM approval_flows ORDER BY CAST(flow_no AS UNSIGNED) ASC LIMIT 1")
+    row = cursor.fetchone()
+    return row["id"] if row else None
+
+
+def topo_sort_steps(nodes: list, transitions: list) -> list:
+    """按连线拓扑顺序排列节点（从开始节点沿连线逐个遍历），返回排序后的节点列表。"""
+    by_id = {n["id"]: n for n in nodes}
+    out = {}
+    in_degree = {n["id"]: 0 for n in nodes}
+    for t in transitions:
+        f, to = t["from_step_id"], t["to_step_id"]
+        out.setdefault(f, []).append(to)
+        in_degree[to] = in_degree.get(to, 0) + 1
+
+    # 开始节点 = 入度为 0
+    start_ids = [nid for nid, d in in_degree.items() if d == 0]
+    order = []
+    visited = set()
+
+    def dfs(nid):
+        if nid in visited:
+            return
+        visited.add(nid)
+        order.append(by_id[nid])
+        for nxt in out.get(nid, []):
+            dfs(nxt)
+
+    for sid in start_ids:
+        dfs(sid)
+    # 兜底：孤立节点（无连线）
+    for n in nodes:
+        if n["id"] not in visited:
+            order.append(n)
+    return order
+
+
+def start_approval(cursor, work_order_id: int, reason: str = ""):
+    """为工单启动 BPM 审批：按访问原因找审批流 → 找开始节点 → 分配第一个审批任务。"""
+    flow_id = resolve_flow_id_by_reason(cursor, reason)
+    if not flow_id:
+        return "当前没有配置审批流"
+
+    cursor.execute(
+        "SELECT id, step_name, required_role, approver_type, approver_id "
+        "FROM approval_steps WHERE approver_type = 'user' AND flow_id = %s ORDER BY id",
+        (flow_id,),
+    )
     all_steps = cursor.fetchall()
     if not all_steps:
-        return "当前没有配置审批节点"
+        return "当前审批流没有配置审批节点"
 
-    cursor.execute("SELECT from_step_id, to_step_id FROM workflow_transitions")
+    cursor.execute("SELECT from_step_id, to_step_id FROM workflow_transitions WHERE flow_id = %s", (flow_id,))
     transitions = cursor.fetchall()
     if not transitions:
-        return "当前 BPM 工作流没有配置节点连线"
+        return "当前审批流没有配置节点连线"
 
     all_step_ids = {s["id"] for s in all_steps}
     to_step_ids = {t["to_step_id"] for t in transitions}
     start_step_ids = list(all_step_ids - to_step_ids)
     if len(start_step_ids) != 1:
-        return f"当前 BPM 工作流必须只有一个开始节点，当前检测到 {len(start_step_ids)} 个"
+        return f"当前审批流必须只有一个开始节点，当前检测到 {len(start_step_ids)} 个"
 
     start_step_id = start_step_ids[0]
     cursor.execute(
-        "SELECT id, step_name, required_role FROM approval_steps WHERE id = %s",
+        "SELECT id, step_name, required_role, approver_type, approver_id FROM approval_steps WHERE id = %s",
         (start_step_id,),
     )
     first_step = cursor.fetchone()
     if not first_step:
-        return "无法找到 BPM 开始节点"
+        return "无法找到审批流开始节点"
 
-    first_admin = find_admin_by_role(cursor, first_step["required_role"])
+    first_admin = find_admin_for_step(cursor, first_step)
     if not first_admin:
-        return f"找不到角色 {first_step['required_role']} 对应的审批管理员"
+        return f"找不到开始节点的审批管理员"
 
     cursor.execute(
         "INSERT INTO approval_records (work_order_id, status) VALUES (%s, 'pending')",
@@ -701,7 +784,7 @@ def create_work_order(data: WorkOrderCreate, member: dict = Depends(get_current_
             work_order_id = cursor.lastrowid
 
             if not data.is_draft:
-                err = start_approval(cursor, work_order_id)
+                err = start_approval(cursor, work_order_id, data.reason)
                 if err:
                     connection.rollback()
                     return {"success": False, "message": err}
@@ -814,14 +897,14 @@ def submit_work_order(work_order_id: int, member: dict = Depends(get_current_bus
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT status FROM work_orders WHERE id = %s", (work_order_id,))
+            cursor.execute("SELECT status, reason FROM work_orders WHERE id = %s", (work_order_id,))
             wo = cursor.fetchone()
             if not wo:
                 return {"success": False, "message": "工单不存在"}
             if wo["status"] != 'draft':
                 return {"success": False, "message": "只有草稿可以提交"}
             cursor.execute("UPDATE work_orders SET status='pending' WHERE id = %s", (work_order_id,))
-            err = start_approval(cursor, work_order_id)
+            err = start_approval(cursor, work_order_id, wo.get("reason") or "")
             if err:
                 connection.rollback()
                 return {"success": False, "message": err}
@@ -1192,7 +1275,7 @@ def handle_approval(
 
             next_step_id = next_transitions[0]["to_step_id"]
             cursor.execute(
-                "SELECT id, step_name, required_role FROM approval_steps WHERE id = %s",
+                "SELECT id, step_name, required_role, approver_type, approver_id FROM approval_steps WHERE id = %s",
                 (next_step_id,),
             )
             next_step = cursor.fetchone()
@@ -1200,10 +1283,10 @@ def handle_approval(
                 connection.rollback()
                 return fail("下一审批节点不存在")
 
-            next_admin = find_admin_by_role(cursor, next_step["required_role"])
+            next_admin = find_admin_for_step(cursor, next_step)
             if not next_admin:
                 connection.rollback()
-                return fail(f"找不到角色 {next_step['required_role']} 对应的审批管理员")
+                return fail("找不到下一审批节点的审批管理员")
 
             cursor.execute(
                 """
@@ -1407,21 +1490,38 @@ def get_work_order_flow(record_id: int, current_admin: dict = Depends(get_curren
             if is_reservation:
                 # 预约：单级审批，只显示部门主管节点
                 cursor.execute(
-                    "SELECT id, step_name, step_order, required_role, node_x, node_y "
+                    "SELECT id, step_name, step_order, required_role, approver_type, approver_id, node_x, node_y "
                     "FROM approval_steps WHERE required_role = '部门主管' ORDER BY step_order ASC"
                 )
                 nodes = cursor.fetchall()
                 transitions = []
             else:
+                # 工单审批链：按工单的访问原因找到审批流，取该流的节点
                 cursor.execute(
-                    "SELECT id, step_name, step_order, required_role, node_x, node_y "
-                    "FROM approval_steps ORDER BY step_order ASC"
+                    "SELECT reason FROM work_orders w "
+                    "JOIN approval_records ar ON ar.work_order_id = w.id "
+                    "WHERE ar.id = %s", (record_id,)
+                )
+                wo_row = cursor.fetchone()
+                flow_id = resolve_flow_id_by_reason(cursor, (wo_row or {}).get("reason") or "") if wo_row else None
+
+                cursor.execute(
+                    "SELECT s.id, s.step_name, s.step_order, s.required_role, s.approver_type, "
+                    "s.approver_id, s.node_x, s.node_y, a.real_name AS approver_name "
+                    "FROM approval_steps s LEFT JOIN admin_users a ON s.approver_id = a.id "
+                    "WHERE s.approver_type = 'user' AND s.flow_id = %s ORDER BY s.id ASC",
+                    (flow_id,),
                 )
                 nodes = cursor.fetchall()
                 cursor.execute(
-                    "SELECT id, from_step_id, to_step_id FROM workflow_transitions ORDER BY id ASC"
+                    "SELECT id, from_step_id, to_step_id FROM workflow_transitions WHERE flow_id = %s ORDER BY id ASC",
+                    (flow_id,),
                 )
                 transitions = cursor.fetchall()
+
+            # 按连线拓扑顺序排列节点（start → ... → end）
+            if not is_reservation:
+                nodes = topo_sort_steps(nodes, transitions)
 
             cursor.execute(
                 "SELECT DISTINCT step_id FROM approval_history WHERE approval_record_id = %s",
@@ -1735,14 +1835,206 @@ def get_active_work_order_fields(member: dict = Depends(get_current_business_mem
 # 管理端：BPM 工作流配置
 # =========================
 
-@app.get("/api/workflow/nodes")
-def get_workflow_nodes(current_admin: dict = Depends(get_current_admin)):
+@app.get("/api/workflow/admins")
+def list_workflow_admins(current_admin: dict = Depends(get_current_admin)):
+    """所有管理员列表（供审批流程画布绑定节点）。"""
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT id, step_name, step_order, required_role, node_x, node_y "
-                "FROM approval_steps ORDER BY step_order ASC"
+                "SELECT id, username, real_name, role FROM admin_users ORDER BY id ASC"
+            )
+            admins = cursor.fetchall()
+        return ok({"list": admins})
+    except Exception as e:
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.get("/api/workflow/flows")
+def list_approval_flows(current_admin: dict = Depends(get_current_admin)):
+    """审批流列表（按访问原因）。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, flow_no, reason FROM approval_flows ORDER BY CAST(flow_no AS UNSIGNED) ASC, id ASC"
+            )
+            flows = cursor.fetchall()
+        return ok({"list": flows})
+    except Exception as e:
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.post("/api/workflow/flows")
+def create_approval_flow(data: AccessReasonCreate, current_admin: dict = Depends(get_current_admin)):
+    """新增访问事务：同步创建一条审批流，默认「张管理员→王主管」。"""
+    connection = get_connection()
+    try:
+        reason = data.reason.strip()
+        if not reason:
+            return fail("访问原因不能为空")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM approval_flows WHERE reason = %s", (reason,))
+            if cursor.fetchone():
+                return fail("该访问事务已存在")
+            # 找张管理员、王主管作为默认审批人
+            cursor.execute("SELECT id FROM admin_users WHERE username = 'admin1'")
+            zhang = cursor.fetchone()
+            cursor.execute("SELECT id FROM admin_users WHERE username = 'admin2'")
+            wang = cursor.fetchone()
+            if not zhang or not wang:
+                return fail("缺少默认审批人（admin1 张管理员 / admin2 王主管）")
+
+            cursor.execute("SELECT COALESCE(MAX(CAST(flow_no AS UNSIGNED)), 0) + 1 AS n FROM approval_flows")
+            next_no = str(cursor.fetchone()["n"])
+            cursor.execute("INSERT INTO approval_flows (flow_no, reason) VALUES (%s, %s)", (next_no, reason))
+            flow_id = cursor.lastrowid
+
+            cursor.execute(
+                "INSERT INTO approval_steps (step_name, step_order, approver_type, approver_id, node_x, node_y, flow_id) "
+                "VALUES ('张管理员审批', 1, 'user', %s, 100, 100, %s)", (zhang["id"], flow_id))
+            n1 = cursor.lastrowid
+            cursor.execute(
+                "INSERT INTO approval_steps (step_name, step_order, approver_type, approver_id, node_x, node_y, flow_id) "
+                "VALUES ('王主管审批', 2, 'user', %s, 300, 100, %s)", (wang["id"], flow_id))
+            n2 = cursor.lastrowid
+            cursor.execute(
+                "INSERT INTO workflow_transitions (from_step_id, to_step_id, flow_id) VALUES (%s, %s, %s)",
+                (n1, n2, flow_id),
+            )
+            # 同步把该访问原因加入工单「进出原因」字段的选项
+            cursor.execute("SELECT id, options FROM work_order_fields WHERE field_key = 'reason' LIMIT 1")
+            reason_field = cursor.fetchone()
+            if reason_field:
+                opts = json.loads(reason_field["options"]) if reason_field.get("options") else []
+                if reason not in opts:
+                    opts.append(reason)
+                    cursor.execute("UPDATE work_order_fields SET options = %s WHERE id = %s",
+                                   (json.dumps(opts, ensure_ascii=False), reason_field["id"]))
+            connection.commit()
+        return ok({"flow_id": flow_id, "flow_no": next_no}, "访问事务已创建，审批流已同步生成")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.post("/api/workflow/nodes")
+def create_workflow_node(data: WorkflowNodeCreate, current_admin: dict = Depends(get_current_admin)):
+    """新增审批节点（绑定具体管理员，approver_type=user，属于某条审批流）。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id, real_name FROM admin_users WHERE id = %s", (data.approver_id,))
+            admin = cursor.fetchone()
+            if not admin:
+                return fail("管理员不存在")
+            if data.flow_id is not None:
+                cursor.execute("SELECT id FROM approval_flows WHERE id = %s", (data.flow_id,))
+                if not cursor.fetchone():
+                    return fail("审批流不存在")
+            step_name = data.step_name.strip() or f"{admin['real_name']}审批"
+            cursor.execute(
+                "INSERT INTO approval_steps (step_name, step_order, approver_type, approver_id, node_x, node_y, flow_id) "
+                "VALUES (%s, 0, 'user', %s, %s, %s, %s)",
+                (step_name, data.approver_id, data.node_x, data.node_y, data.flow_id),
+            )
+            node_id = cursor.lastrowid
+            connection.commit()
+        return ok({"id": node_id}, "节点创建成功")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.put("/api/workflow/nodes/{node_id}")
+def update_workflow_node(node_id: int, data: WorkflowNodeUpdate, current_admin: dict = Depends(get_current_admin)):
+    """编辑审批节点（改名/换管理员/改位置）。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM approval_steps WHERE id = %s", (node_id,))
+            if not cursor.fetchone():
+                return fail("节点不存在")
+            sets = []
+            params = []
+            if data.step_name.strip():
+                sets.append("step_name = %s")
+                params.append(data.step_name.strip())
+            if data.approver_id is not None:
+                cursor.execute("SELECT id FROM admin_users WHERE id = %s", (data.approver_id,))
+                if not cursor.fetchone():
+                    return fail("管理员不存在")
+                sets.append("approver_id = %s")
+                params.append(data.approver_id)
+            if data.node_x is not None:
+                sets.append("node_x = %s")
+                params.append(data.node_x)
+            if data.node_y is not None:
+                sets.append("node_y = %s")
+                params.append(data.node_y)
+            if not sets:
+                return fail("没有需要更新的字段")
+            params.append(node_id)
+            cursor.execute(f"UPDATE approval_steps SET {', '.join(sets)} WHERE id = %s", params)
+            connection.commit()
+        return ok(None, "节点更新成功")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.delete("/api/workflow/nodes/{node_id}")
+def delete_workflow_node(node_id: int, current_admin: dict = Depends(get_current_admin)):
+    """删除审批节点（同时删除其相关连线）。仅允许删除 user 节点。"""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT approver_type FROM approval_steps WHERE id = %s", (node_id,))
+            row = cursor.fetchone()
+            if not row:
+                return fail("节点不存在")
+            if row["approver_type"] != "user":
+                return fail("该节点为系统保留节点，不可删除")
+            cursor.execute(
+                "DELETE FROM workflow_transitions WHERE from_step_id = %s OR to_step_id = %s",
+                (node_id, node_id),
+            )
+            cursor.execute("DELETE FROM approval_steps WHERE id = %s", (node_id,))
+            connection.commit()
+        return ok(None, "节点已删除")
+    except Exception as e:
+        connection.rollback()
+        return fail(str(e), code=500)
+    finally:
+        connection.close()
+
+
+@app.get("/api/workflow/nodes")
+def get_workflow_nodes(flow_id: int | None = Query(default=None), current_admin: dict = Depends(get_current_admin)):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            where = ""
+            params = []
+            if flow_id is not None:
+                where = "WHERE s.flow_id = %s"
+                params.append(flow_id)
+            cursor.execute(
+                "SELECT s.id, s.step_name, s.step_order, s.required_role, s.approver_type, "
+                "s.approver_id, s.flow_id, s.node_x, s.node_y, a.real_name AS approver_name, a.role AS approver_role "
+                f"FROM approval_steps s LEFT JOIN admin_users a ON s.approver_id = a.id {where} "
+                "ORDER BY s.id ASC",
+                params,
             )
             nodes = cursor.fetchall()
         return ok({"list": nodes})
@@ -1792,23 +2084,31 @@ def update_workflow_node_positions(data: WorkflowNodeBatchUpdate, current_admin:
 
 
 @app.get("/api/workflow/transitions")
-def get_workflow_transitions(current_admin: dict = Depends(get_current_admin)):
+def get_workflow_transitions(flow_id: int | None = Query(default=None), current_admin: dict = Depends(get_current_admin)):
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
+            where = ""
+            params = []
+            if flow_id is not None:
+                where = "WHERE workflow_transitions.flow_id = %s"
+                params.append(flow_id)
             cursor.execute(
-                """
+                f"""
                 SELECT
                     workflow_transitions.id,
                     workflow_transitions.from_step_id,
                     workflow_transitions.to_step_id,
+                    workflow_transitions.flow_id,
                     approval_steps.step_name AS from_step_name,
                     next_step.step_name AS to_step_name
                 FROM workflow_transitions
                 JOIN approval_steps ON workflow_transitions.from_step_id = approval_steps.id
                 JOIN approval_steps AS next_step ON workflow_transitions.to_step_id = next_step.id
+                {where}
                 ORDER BY workflow_transitions.id ASC
-                """
+                """,
+                params,
             )
             transitions = cursor.fetchall()
         return ok({"list": transitions})
@@ -1826,24 +2126,38 @@ def create_transition(data: TransitionCreate, current_admin: dict = Depends(get_
             return fail("不能连接到自身节点")
 
         with connection.cursor() as cursor:
-            cursor.execute("SELECT id FROM approval_steps WHERE id = %s", (data.from_step_id,))
-            if not cursor.fetchone():
+            cursor.execute("SELECT id, flow_id FROM approval_steps WHERE id = %s", (data.from_step_id,))
+            from_step = cursor.fetchone()
+            if not from_step:
                 return fail("起始节点不存在")
-            cursor.execute("SELECT id FROM approval_steps WHERE id = %s", (data.to_step_id,))
-            if not cursor.fetchone():
+            cursor.execute("SELECT id, flow_id FROM approval_steps WHERE id = %s", (data.to_step_id,))
+            to_step = cursor.fetchone()
+            if not to_step:
                 return fail("目标节点不存在")
+            # 两节点必须属于同一审批流
+            if from_step["flow_id"] != to_step["flow_id"]:
+                return fail("起始节点与目标节点不属于同一审批流")
+            flow_id = data.flow_id if data.flow_id is not None else from_step["flow_id"]
             cursor.execute(
                 "SELECT id FROM workflow_transitions WHERE from_step_id = %s AND to_step_id = %s",
                 (data.from_step_id, data.to_step_id),
             )
             if cursor.fetchone():
                 return fail("该连线已经存在")
+            # 单输出：起始节点只能有一个下一节点
             cursor.execute(
                 "SELECT id FROM workflow_transitions WHERE from_step_id = %s LIMIT 1",
                 (data.from_step_id,),
             )
             if cursor.fetchone():
                 return fail("该节点已经配置下一节点，请先删除旧连线")
+            # 单输入：目标节点只能有一个上一节点
+            cursor.execute(
+                "SELECT id FROM workflow_transitions WHERE to_step_id = %s LIMIT 1",
+                (data.to_step_id,),
+            )
+            if cursor.fetchone():
+                return fail("该节点已经配置上一节点，请先删除旧连线")
             cursor.execute(
                 "SELECT id FROM workflow_transitions WHERE from_step_id = %s AND to_step_id = %s LIMIT 1",
                 (data.to_step_id, data.from_step_id),
@@ -1851,8 +2165,8 @@ def create_transition(data: TransitionCreate, current_admin: dict = Depends(get_
             if cursor.fetchone():
                 return fail("不能形成循环审批流程")
             cursor.execute(
-                "INSERT INTO workflow_transitions (from_step_id, to_step_id) VALUES (%s, %s)",
-                (data.from_step_id, data.to_step_id),
+                "INSERT INTO workflow_transitions (from_step_id, to_step_id, flow_id) VALUES (%s, %s, %s)",
+                (data.from_step_id, data.to_step_id, flow_id),
             )
             transition_id = cursor.lastrowid
 

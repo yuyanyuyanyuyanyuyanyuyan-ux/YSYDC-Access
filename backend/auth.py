@@ -274,6 +274,24 @@ def build_menus(top: bool) -> list:
                 "alwaysShow": False,
             }
         )
+        children.append(
+            {
+                "id": 18,
+                "name": "审批流程配置",
+                "permission": "workflow:configure",
+                "type": 2,
+                "sort": 8,
+                "parentId": 1,
+                "path": "workflow-editor",
+                "icon": "ep:connection",
+                "component": "bpm/workflow-editor/index",
+                "componentName": "WorkflowEditor",
+                "status": 0,
+                "visible": True,
+                "keepAlive": True,
+                "alwaysShow": False,
+            }
+        )
     return [
         {
             "id": 1,
